@@ -2,7 +2,6 @@ import puzzlepiece as pzp
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import numpy as np
-import os, sys
 from PIL import Image
 
 class Settings(pzp.piece.Popup):
