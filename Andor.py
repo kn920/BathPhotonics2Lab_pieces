@@ -3,6 +3,8 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import numpy as np
 from PIL import Image
+import datasets as ds
+import datetime
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
@@ -397,7 +399,7 @@ class Base(pzp.Piece):
             else:
                 self.params['roi'].set_value([1080, 1440])
 
-        @pzp.action.define(self, 'Save image')
+        @pzp.action.define(self, "Save image")
         def save_image(self, filename=None):
             image = self.params['image'].value
             if image is None:
@@ -410,7 +412,7 @@ class Base(pzp.Piece):
             
             Image.fromarray((image // 4).astype(np.uint8)).save(filename)
 
-        @pzp.action.define(self, 'Take background', visible=False)
+        @pzp.action.define(self, "Take background", visible=False)
         def take_background(self):
             self.params['sub_background'].set_value(False)
             background = self.params['image'].get_value()
@@ -421,7 +423,7 @@ class Base(pzp.Piece):
         def settings(self):
             self.open_popup(Settings, "More settings")
 
-        @pzp.action.define(self, 'Export device info', visible=False)
+        @pzp.action.define(self, "Export device info", visible=False)
         def export_device_info(self, filename=None):
             info_dict = None
             if not self.puzzle.debug:
@@ -440,6 +442,25 @@ class Base(pzp.Piece):
             # write string one by one adding newline
             with open(filename, 'w') as my_file:
                 [my_file.write(f'{st}\n') for st in info_strings]
+
+        @pzp.action.define(self, "Save data")
+        def save_data(self, filename=None):
+
+            if filename is None:
+                filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                    self.puzzle, 'Save file as...', 
+                    '.', "dataset file (*.ds)")
+            image = self.params["image"].value
+            print(image.shape)
+            dat = ds.dataset(image, y_pixel=np.arange(image.shape[0]), wls=self.params["wls"].get_value())
+            dat.metadata["background"] = self.params["background"].get_value()
+            dat.metadata["exposure"] = self.params["exposure"].get_value()
+            dat.metadata["grating"] = self.params["grating"].value
+            dat.metadata["amp_mode"] = self.params["amp_mode"].value
+            dat.metadata["vs_speed"] = self.params["vs_speed"].value
+            dat.metadata["slit_width"] = self.params["slit_width"].get_value()
+            dat.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            dat.save(filename, 2)
 
     # Ensure devices are connected
     @pzp.piece.ensurer        
