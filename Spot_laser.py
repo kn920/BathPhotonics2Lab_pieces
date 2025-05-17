@@ -61,7 +61,7 @@ class Piece(pzp.Piece):
         @self._ensure_connected
         def status(self):
             if not self.puzzle.debug:
-                self.params["timestamp"].set_value(datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y"))
+                self.params["timestamp"].set_value(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
                 return self.SerialObj.readline()
             self.params["timestamp"].set_value(datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
             return "debug mode"
