@@ -8,7 +8,33 @@ import datetime
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
-        self.add_child_params(["vs_speed", "counts", "max_counts", "sub_background", "start_acquisition"])
+        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "output_port", "counts", "max_counts", "sub_background", "start_acquisition"])
+        
+        # Reload dropdown lists when Settings popup opened
+        def relaod_dropdowns():    
+            try:
+                if not self.puzzle.debug:
+                    self["amp_mode"].input.addItems([str(x) for x in self.cam.get_all_amp_modes()])
+                    self["vs_speed"].input.addItems([str(x) for x in self.cam.get_all_vsspeeds()])
+                    self.params["input_port"].input.addItems(["direct", "side"])
+                    self.params["output_port"].input.addItems(["direct", "side"])
+                else:                                    
+                    A = [(1,1,1), (2,2,2), (3,3,3)]
+                    self["amp_mode"].input.addItems([str(x) for x in A])
+                    self["vs_speed"].input.addItems([str(x) for x in A])
+                    self.params["input_port"].input.addItems(["direct", "side"])
+                    self.params["output_port"].input.addItems(["direct", "side"])
+            except:
+                ...
+
+            self["amp_mode"].get_value()
+            self["vs_speed"].get_value()
+            self["input_port"].get_value()
+            self["slit_width"].get_value()
+            self["output_port"].get_value()
+            
+        relaod_dropdowns()
+
         return super().define_params()
     
     def define_actions(self):
@@ -68,6 +94,9 @@ class Base(pzp.Piece):
 
                 self.params["input_port"].input.addItems(["direct", "side"])
                 self.params["output_port"].input.addItems(["direct", "side"])
+
+                self.params["slit_width"].set_value(8)
+
                 return value
             
             # Check if we're currently connected by checking what the state of the checkbox was
@@ -144,7 +173,7 @@ class Base(pzp.Piece):
             return self.cam.get_exposure()
 
         # Set amp mode
-        @pzp.param.dropdown(self, "amp_mode", "")
+        @pzp.param.dropdown(self, "amp_mode", "", visible=False)
         @self._ensure_connected
         def amp_mode(self):
             return None
@@ -166,7 +195,7 @@ class Base(pzp.Piece):
             return value
 
         # Set VS speed mode (vertical shift speed)
-        @pzp.param.dropdown(self, "vs_speed", "", visible=True)
+        @pzp.param.dropdown(self, "vs_speed", "", visible=False)
         @self._ensure_connected
         def vs_speed(self):
             return None
@@ -328,7 +357,7 @@ class Base(pzp.Piece):
 
 
         # Set input port
-        @pzp.param.dropdown(self, "input_port", "", visible=True)
+        @pzp.param.dropdown(self, "input_port", "", visible=False)
         @self._ensure_connected
         def input_port(self):
             return None
@@ -348,7 +377,7 @@ class Base(pzp.Piece):
             return value
 
         # Set input slit width
-        @pzp.param.spinbox(self, "slit_width", 8)
+        @pzp.param.spinbox(self, "slit_width", 8, visible=False)
         @self._ensure_connected
         def slit_width(self, value):
             if self.puzzle.debug:
@@ -364,7 +393,7 @@ class Base(pzp.Piece):
             return self.spec.get_slit_width(self.params["input_port"].value)
 
         # Set output port
-        @pzp.param.dropdown(self, "output_port", "", visible=True)
+        @pzp.param.dropdown(self, "output_port", "", visible=False)
         @self._ensure_connected
         def output_port(self):
             return None
@@ -382,7 +411,6 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 self.spec.set_flipper_port(2, self.params["output_port"].value)
             return value
-
 
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
@@ -420,6 +448,7 @@ class Base(pzp.Piece):
             self.params['sub_background'].set_value(True)
 
         @pzp.action.define(self, "Settings")
+        @self._ensure_connected
         def settings(self):
             self.open_popup(Settings, "More settings")
 
@@ -462,6 +491,9 @@ class Base(pzp.Piece):
             dat.metadata["slit_width"] = self.params["slit_width"].get_value()
             dat.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             dat.save(filename, 2)
+            
+            # For "filename" textbox not visible
+            self.params["filename"].set_value = ""
 
     # Ensure devices are connected
     @pzp.piece.ensurer        
@@ -504,7 +536,6 @@ class Base(pzp.Piece):
     # Disconnect the camera when window close
     def handle_close(self, event):
         self.dispose()
-
 
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):
@@ -588,7 +619,8 @@ class Piece(Base):
             else:
                 self.imgw.setLevels([0, 1024])
 
-        pzp.param.text(self, "filename", "")(None)
+        # Make it visible again after the textbox span issue solved
+        pzp.param.text(self, "filename", "", visible=False)(None)
 
     # Within this function we can define any other GUI objects we want to display beyond the 
     # params and actions (which are generated by default)
@@ -619,9 +651,7 @@ class Piece(Base):
         update_later = pzp.threads.CallLater(update_image)
         self.params['image'].changed.connect(update_later)
 
-        # histogram = pg.HistogramLUTWidget(orientation='horizontal')
-        # layout.addWidget(histogram)
-        # histogram.setImageItem(self.imgw)
+        layout.setStretchFactor(self.pw, 9)
 
         return layout
     
@@ -757,7 +787,6 @@ class LineoutPiece(Piece):
         self._inf_line_y.sigPositionChanged.connect(update_image)
         plot_main.sigXRangeChanged.connect(sync_plot_fvb)
         plot_fvb.sigXRangeChanged.connect(sync_plot_main)
-
 
         return layout
     

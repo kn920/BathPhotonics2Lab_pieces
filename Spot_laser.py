@@ -67,14 +67,7 @@ class Piece(pzp.Piece):
             return "debug mode"
         
         # Readout timestamp
-        @pzp.param.readout(self, "timestamp")
-        @self._ensure_connected
-        def timestamp(self):
-            return self.params["timestamp"].value
-        
-        @timestamp.set_setter(self)
-        def timestamp(self, value):
-            return value
+        pzp.param.readout(self, "timestamp")(None)
 
     def define_actions(self):
 
