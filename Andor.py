@@ -46,7 +46,6 @@ class Base(pzp.Piece):
         # Move the custom_layout to the right of the generated inputs
         super().__init__(puzzle, custom_horizontal=True)
         # self.image will store the image the camera takes
-        # self.wls will store the wavelength values
         self.image = [0]
         self.params["sub_background"].set_value(False)
 

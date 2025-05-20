@@ -2,7 +2,6 @@ import puzzlepiece as pzp
 from pyqtgraph.Qt import QtWidgets
 import serial
 import serial.tools.list_ports
-import time
 import datetime
 
 class Piece(pzp.Piece):
