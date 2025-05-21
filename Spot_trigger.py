@@ -31,8 +31,21 @@ class Piece(pzp.Piece):
         def pfi_port(self, value):
             return value
     
+        #  Safety precaution - Trigger unlock button
+        @pzp.param.checkbox(self, "Unlock", False, visible=True)
+        def unlock(self, value):
+            current_value = self.params['Unlock'].value
+            if value and not current_value:
+                self.params["Unlock"].input.setStyleSheet("background-color: #fffba0")
+                return True
+            elif current_value:
+                self.params["FIRE LASER"].set_value(False)
+                self.params["Unlock"].input.setStyleSheet("background-color: #f3f3f3")
+                return False
+
         @pzp.param.checkbox(self, "FIRE LASER", False)
         @self._ensure_daq
+        @self._ensure_unlocked
         def pulse_train(self, value):
             if self.puzzle.debug:
                 if value:
@@ -67,7 +80,9 @@ class Piece(pzp.Piece):
     def define_actions(self):
         @pzp.action.define(self, "Trigger pulse")
         @self._ensure_daq
+        @self._ensure_unlocked
         def trigger_pulse(self):
+            print('pulse')
             if not self.puzzle.debug:
                 self.daq.set_pulse_output("laser_trigger", continuous=False, samps=1)
                 self.daq.start_pulse_output(names="laser_trigger", autostop=True)
@@ -79,6 +94,10 @@ class Piece(pzp.Piece):
         if not self.puzzle.debug:
             self.puzzle["NIDAQ"]._ensure_connected()
 
+    @pzp.piece.ensurer        
+    def _ensure_unlocked(self):
+        if not self.params["Unlock"].value:
+            raise Exception("Unlock laser trigger first")
 
     def setup(self):
         max_freq = 50e3

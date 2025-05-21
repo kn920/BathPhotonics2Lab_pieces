@@ -148,9 +148,15 @@ class Base(pzp.Piece):
         @pzp.readout.define(self, "temp_status")
         @self._ensure_connected
         def fan(self):
-            if self.puzzle.debug:
-                return "stabilized"
-            return self.cam.get_temperature_status()
+            if not self.puzzle.debug:
+                status = self.cam.get_temperature_status()
+            else:
+                status = "stabilized"
+            if status != "stabilized":
+                self.params["temp_status"].input.setStyleSheet("background-color: yellow")
+            else:
+                self.params["temp_status"].input.setStyleSheet("background-color: #f3f3f3") 
+            return status
 
         # Set exposure time
         @pzp.param.spinbox(self, "exposure", 100.)
