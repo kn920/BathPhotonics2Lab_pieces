@@ -23,7 +23,7 @@ class Piece(pzp.Piece):
         def ao_port(self, value):
             if not self.puzzle.debug:
                 # DOUBLE CHECK the MOD range 
-                self.daq.add_voltage_output("AOM_mod_in", value.lower(), rng=(0, 5), initial_value=0.0)
+                self.puzzle["NIDAQ"].daq.add_voltage_output("AOM_mod_in", value.lower(), rng=(0, 5), initial_value=0.0)
             return value
 
         # Set mod_in voltage
@@ -33,7 +33,7 @@ class Piece(pzp.Piece):
             if self.puzzle.debug:
                 return value
             # If we're connected and not in debug mode, set the mod_in voltage
-            self.daq.set_voltage_outputs("AOM_mod_in", value)
+            self.puzzle["NIDAQ"].daq.set_voltage_outputs("AOM_mod_in", value)
 
         @mod_in.set_getter(self)
         @self._ensure_daq
@@ -41,7 +41,7 @@ class Piece(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['mod_in'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.daq.get_voltage_outputs("AOM_mod_in")
+            return self.puzzle["NIDAQ"].daq.get_voltage_outputs("AOM_mod_in")[0]
 
     # Ensure devices are connected
     @pzp.piece.ensurer        
@@ -52,7 +52,7 @@ class Piece(pzp.Piece):
 if __name__ == "__main__":
     import NIDAQ
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 0)
     puzzle.add_piece("AOM", Piece(puzzle), 1, 0)
     puzzle.show()
