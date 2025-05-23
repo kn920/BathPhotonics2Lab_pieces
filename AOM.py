@@ -1,6 +1,5 @@
 import puzzlepiece as pzp
 from pyqtgraph.Qt import QtWidgets
-from pylablib.devices import NI
 
 class Piece(pzp.Piece):
     def __init__(self, puzzle):
