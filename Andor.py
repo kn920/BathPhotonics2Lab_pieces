@@ -17,13 +17,11 @@ class Settings(pzp.piece.Popup):
                     self["amp_mode"].input.addItems([str(x) for x in self.cam.get_all_amp_modes()])
                     self["vs_speed"].input.addItems([str(x) for x in self.cam.get_all_vsspeeds()])
                     self.params["input_port"].input.addItems(["side"])
-                    # self.params["output_port"].input.addItems(["direct", "side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
                     self["amp_mode"].input.addItems([str(x) for x in A])
                     self["vs_speed"].input.addItems([str(x) for x in A])
                     self.params["input_port"].input.addItems(["side"])
-                    # self.params["output_port"].input.addItems(["direct", "side"])
             except:
                 ...
 
@@ -31,7 +29,6 @@ class Settings(pzp.piece.Popup):
             self["vs_speed"].get_value()
             self["input_port"].get_value()
             self["slit_width"].get_value()
-            # self["output_port"].get_value()
             
         relaod_dropdowns()
 
@@ -47,18 +44,12 @@ class Base(pzp.Piece):
         super().__init__(puzzle, custom_horizontal=True)
         # self.image will store the image the camera takes
         self.image = [0]
-        self.params["sub_background"].set_value(False)
-
-        # import pylablib as pll
-        # from pylablib.devices import Andor
-
-        # pll.par["devices/dlls/andor_sdk2"] = "C:/Program Files/Andor SOLIS"
-        # self.imports = Andor      
+        self.params["sub_background"].set_value(False)    
 
     def define_params(self):
     
         # List and select device indices
-        @pzp.param.dropdown(self, "device_index", "")
+        @pzp.param.dropdown(self, "device_index", "0")
         def device_idx(self):
             return None
         
@@ -71,7 +62,7 @@ class Base(pzp.Piece):
             
             self.imports.Shamrock.restart_lib()
             self["device_index"].input.clear()
-            self["device_index"].input.addItems([str(x) for x in np.arange(self.imports.get_cameras_number_SDK2()+1)])
+            self["device_index"].input.addItems([str(x) for x in np.arange(self.imports.get_cameras_number_SDK2())])
             return self.params['device_index'].value
 
         # Connect to device
@@ -85,7 +76,7 @@ class Base(pzp.Piece):
                 self["vs_speed"].input.addItems([str(x) for x in A])
 
                 B1 = np.arange(4)+1
-                B2 = ["Grating A Grating A Grating A Grating A", "Grating B", "Grating C", "Grating D"]
+                B2 = ["Grating A Grating A Grating A Grating A", "300 lpmm, 1200nm", "Grating C", "Grating D"]
                 self["grating"].input.clear()
                 for i in B1:
                         self["grating"].input.addItem(f"{i:02d} - {B2[i-1]}")
@@ -93,10 +84,12 @@ class Base(pzp.Piece):
                 self.params["start_acquisition"].set_value(False)
 
                 self.params["input_port"].input.addItems(["side"])
-                # self.params["output_port"].input.addItems(["direct", "side"])
 
                 self.params["slit_width"].set_value(8)
 
+                self.params["roi"].set_value([0, 1279, 0, 255])
+
+                self.params["temp_status"].get_value()
                 return value
             
             # Check if we're currently connected by checking what the state of the checkbox was
@@ -114,30 +107,23 @@ class Base(pzp.Piece):
                     self["vs_speed"].input.addItems([str(x) for x in self.cam.get_all_vsspeeds()])
                     self["grating"].input.clear()
                     for i in np.arange(self.spec.get_gratings_number())+1:
-                        self["grating"].input.addItem(f"{i:02d} - {self.spec.get_grating_info(i)}")
+                        TGratingInfo = self.spec.get_grating_info(i)
+                        self["grating"].input.addItem(f"{i:02d} - {int(TGratingInfo.lines)} lpmm, {TGratingInfo.blaze_wavelength}")
 
                     self.params["input_port"].input.addItems(["side"])
-                    # self.params["output_port"].input.addItems(["side", "direct"])
 
                     # Set cooler on
                     self.cam.set_cooler(on=True)
-
                     # Set acquisition mode to Single scan
                     self.cam.set_acquisition_mode("single")
-
                     # Set readout mode to Image
                     self.cam.set_read_mode("image")
-
                     # Set shutter state to Auto
                     self.cam.setup_shutter('auto')
-
-                    # # Set trigger mode to Software mode
-                    # self.cam.set_trigger_mode('software')
-
                     # Set start_acquisition param
                     self.params["start_acquisition"].set_value(False)
-
-
+                    
+                    self.params["temp_status"].get_value()
                     return 1
                 except Exception as e:
                     self.dispose()
@@ -152,26 +138,28 @@ class Base(pzp.Piece):
         # Getter for camera temperature status
         @pzp.readout.define(self, "temp_status")
         @self._ensure_connected
-        def fan(self):
+        def temp_status(self):
             if not self.puzzle.debug:
                 status = self.cam.get_temperature_status()
             else:
                 status = "stabilized"
-            if status != "stabilized":
+            if status == "not_reached" or status == "not_stabilized":
+                temperature = f"{self.cam.get_temperature()}°C"
                 self.params["temp_status"].input.setStyleSheet("background-color: yellow")
+                return temperature
+            elif status != "stabilized":
+                self.params["temp_status"].input.setStyleSheet("background-color: red")
             else:
                 self.params["temp_status"].input.setStyleSheet("background-color: #f3f3f3") 
             return status
 
         # Set exposure time
-        @pzp.param.spinbox(self, "exposure", 100.)
+        @pzp.param.spinbox(self, "exposure", 10.)
         @self._ensure_connected
         def exposure(self, value):
             if self.puzzle.debug:
                 return value
-            # If we're connected and not in debug mode, set the exposure
-            if self.params['start_acquisition'].get_value() == True:
-                self.params['start_acquisition'].set_value(False)
+            self.call_stop()
             self.cam.set_exposure(value*1e-6)
 
         @exposure.set_getter(self)
@@ -199,8 +187,7 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def amp_mode(self, value):
             if not self.puzzle.debug:
-                if self.params['start_acquisition'].get_value() == True:
-                    self.params['start_acquisition'].set_value(False)
+                self.call_stop()
                 self.cam.set_amp_mode(self.params["amp_mode"].value)
             return value
 
@@ -220,27 +207,27 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def vs_speed(self, value):
             if not self.puzzle.debug:
-                if self.params['start_acquisition'].get_value() == True:
-                    self.params['start_acquisition'].set_value(False)
+                self.call_stop()
                 self.cam.set_vsspeed(self.params["vs_speed"].value)
             return value
 
         # Setup ROI
         @pzp.param.array(self, 'roi', False)
         def roi(self):
-            if self.params['roi'].value is None:
-                return [0,1439,0,1079]
-            elif not self.puzzle.debug and self.params["connected"].value:
-                return self.cam.get_roi()[:4]
-            else:
-                return self.params['roi'].value
+            return None
             
+        @roi.set_getter(self)
+        @self._ensure_connected
+        def roi(self):
+            if not self.puzzle.debug:
+                return self.cam.get_roi()[:4]
+            return self.params['roi'].value
+
         @roi.set_setter(self)
         @self._ensure_connected
         def roi(self, value):
             if not self.puzzle.debug:
-                # if self.params['start_acquisition'].get_value() == True:
-                #     self.params['start_acquisition'].set_value(False)
+                self.call_stop()
                 self.cam.set_roi(*value)
             self.params["sub_background"].set_value(False)
             return value
@@ -272,15 +259,15 @@ class Base(pzp.Piece):
                 dummy_imgsize = self.params["roi"].get_value()
                 image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
-                # if self.params['start_acquisition'].get_value() == False:
-                #     self.params['start_acquisition'].set_value(True)
-
                 # cam.snap handled all the acquisition start, wait, and stop 
+                self.call_stop()
                 image = self.cam.snap()
                 if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
                 image -= self.params['background'].get_value()
+            if image.shape[1] != self.params["wls"].value.shape[0]:
+                self.params["wls"].get_value()
             return image
 
         # Toggle background subtraction
@@ -318,6 +305,7 @@ class Base(pzp.Piece):
         def grating(self):
             if self.puzzle.debug:
                 return self.params['grating'].value
+            self.call_stop()
             grat_idx = self.spec.get_grating()
             grat_info = self.spec.get_grating_info(grat_idx)
             return f"{grat_idx:02d} - {grat_info}"
@@ -331,15 +319,15 @@ class Base(pzp.Piece):
                 grat_idx = int(value.split(" - ")[0])
                 self.spec.set_grating(grat_idx)
             return value
-
+        
+        self.params["grating"].input.setMinimumWidth(160)
+        
         # Set centre wavelength
         @pzp.param.spinbox(self, "centre", 0.0)
         def centre(self, value):
+            self.call_stop()
             if self.puzzle.debug:
                 return value
-            # If we're connected and not in debug mode, set the wavelength
-            if self.params['start_acquisition'].get_value() == True:
-                self.params['start_acquisition'].set_value(False)
             if value == 0:
                 self.spec.goto_zero_order()
             else:
@@ -366,6 +354,7 @@ class Base(pzp.Piece):
             # return np.linspace(roi[0], roi[1], (roi[1]-roi[0]+1))*3
             return np.linspace(300, 700, roi[1]-roi[0]+1)
 
+        self.params["wls"].set_value(np.linspace(0, 1280, 1280))
 
         # Set input port
         @pzp.param.dropdown(self, "input_port", "", visible=False)
@@ -383,6 +372,7 @@ class Base(pzp.Piece):
         @input_port.set_setter(self)
         @self._ensure_connected
         def input_port(self, value):
+            self.call_stop()
             if not self.puzzle.debug:
                 self.spec.set_flipper_port(1, self.params["input_port"].value)
             return value
@@ -398,29 +388,11 @@ class Base(pzp.Piece):
         @slit_width.set_getter(self)
         @self._ensure_connected
         def slit_width(self):
+            self.call_stop()
             if self.puzzle.debug:
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
             return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
-
-        # # Set output port
-        # @pzp.param.dropdown(self, "output_port", "", visible=False)
-        # def output_port(self):
-        #     return None
-
-        # @output_port.set_getter(self)
-        # @self._ensure_connected
-        # def output_port(self):
-        #     if self.puzzle.debug:
-        #         return self.params['output_port'].value
-        #     return self.spec.get_flipper_port(2)
-
-        # @output_port.set_setter(self)
-        # @self._ensure_connected
-        # def output_port(self, value):
-        #     if not self.puzzle.debug:
-        #         self.spec.set_flipper_port(2, 'output_'+self.params["output_port"].value)
-        #     return value
 
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
@@ -433,10 +405,10 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 roi_limits = self.cam.get_roi_limits()
                 # Issue here
-                self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
-                self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
+                self.params['roi'].set_value([0, int(roi_limits[0].max)-1, 0, int(roi_limits[1].max)-1])
+                # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
-                self.params['roi'].set_value([1080, 1440])
+                self.params['roi'].set_value([0, 1279, 0, 255])
 
         @pzp.action.define(self, "Save image")
         def save_image(self, filename=None):
@@ -492,7 +464,6 @@ class Base(pzp.Piece):
                     self.puzzle, 'Save file as...', 
                     '.', "dataset file (*.ds)")
             image = self.params["image"].value
-            print(image.shape)
             dat = ds.dataset(image, y_pixel=np.arange(image.shape[0]), wls=self.params["wls"].get_value())
             dat.metadata["background"] = self.params["background"].get_value()
             dat.metadata["exposure"] = self.params["exposure"].get_value()
@@ -533,6 +504,7 @@ class Base(pzp.Piece):
         import pylablib as pll
         from pylablib.devices import Andor
 
+        pll.par["devices/dlls/andor_shamrock"] = "C:/Program Files/Andor SOLIS"
         pll.par["devices/dlls/andor_sdk2"] = "C:/Program Files/Andor SOLIS"
         self.imports = Andor
 
@@ -558,15 +530,13 @@ class ROI_Popup(pzp.piece.Popup):
 
         @pzp.action.define(self, "Capture ref")
         def capture_reference(self):
-            if not self.puzzle.debug:
-                original_roi = self.parent_piece.params['roi'].get_value()
-                self.parent_piece.actions['Reset ROI']()
+            original_roi = self.parent_piece.params['roi'].get_value()
+            self.parent_piece.actions['Reset ROI']()
+            self.parent_piece.params["wls"].get_value()
             image = self.parent_piece.params['image'].get_value()
-            print(image.shape)
             self._rows, self._cols = image.shape
             self.imgw.setImage(image[:,::-1])
-            if not self.puzzle.debug:
-                self.parent_piece.params['roi'].set_value(original_roi)
+            self.parent_piece.params['roi'].set_value(original_roi)
 
         @pzp.action.define(self, "Set ROI")
         def set_roi(self):
@@ -683,14 +653,18 @@ class LineoutPiece(Piece):
     def define_params(self):
         super().define_params()
 
-        pzp.param.spinbox(self, 'circle_r', 200, visible=False)(None)
+        pzp.param.spinbox(self, 'circle_r', 50, visible=False)(None)
 
     
     def custom_layout(self):
         layout = QtWidgets.QVBoxLayout()
 
         # Add a PuzzleTimer for live view
-        self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, 0.1)
+        if not self.puzzle.debug:
+            delay = 0.1             # CHECK - Change to smaller value for faster refresh, but stable
+        else:
+            delay = 0.1
+        self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
         layout.addWidget(self.timer)
 
         # Make the plots
@@ -711,12 +685,12 @@ class LineoutPiece(Piece):
         plot_fvb = self.gl.addPlot(2, 0)
 
         def px2wl_mapping():
-            image_min = self.params["roi"].get_value()[0]
-            image_max = self.params["roi"].get_value()[1] + 1
-            wl_min = self.params["wls"].get_value()[0]
-            wl_max = self.params["wls"].get_value()[-1]
+            image_min = self.params["roi"].value[0]
+            image_max = self.params["roi"].value[1] + 1
+            wl_min = self.params["wls"].value[0]
+            wl_max = self.params["wls"].value[-1]
             m = (wl_max - wl_min) / (image_max - image_min)
-            c = wl_min - image_min * m
+            c = wl_min
             return m ,c
 
         def sync_plot_fvb(vb):
@@ -745,6 +719,8 @@ class LineoutPiece(Piece):
 
         plot_main.setAspectLocked(True)
         plot_main.invertY(True)
+        # Set default ROI
+        self.params["roi"].set_value([0, 1279, 0, 255])
         h, w = self.params['roi'].get_value()[[1,3]]
         plot_main.setXRange(0, w)
         plot_main.setYRange(0, h)   
@@ -789,7 +765,7 @@ class LineoutPiece(Piece):
             i = int(self._inf_line_y.value())
             plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
                 
-            plot_line_fvb.setData(self.params["wls"].get_value(), image_data.sum(axis=0))
+            plot_line_fvb.setData(self.params["wls"].value, image_data.sum(axis=0))
             m, c = px2wl_mapping()
             self._inf_line_fvb.setPos([x*m+c for x in self._inf_line_y.getPos()])
              
