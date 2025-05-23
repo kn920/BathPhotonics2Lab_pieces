@@ -21,7 +21,6 @@ class Piece(pzp.Piece):
         @self._ensure_daq
         def ao_port(self, value):
             if not self.puzzle.debug:
-                # DOUBLE CHECK the MOD range 
                 self.puzzle["NIDAQ"].daq.add_voltage_output("AOM_mod_in", value.lower(), rng=(0, 5), initial_value=0.0)
             return value
 
