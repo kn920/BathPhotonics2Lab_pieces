@@ -5,17 +5,21 @@ import numpy as np
 from PIL import Image
 import datasets as ds
 import datetime
+from timeout import timeout_func
+import time
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
+        super().define_params()
         self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background", "start_acquisition"])
         
         # Reload dropdown lists when Settings popup opened
         def relaod_dropdowns():    
             try:
                 if not self.puzzle.debug:
-                    self["amp_mode"].input.addItems([str(x) for x in self.cam.get_all_amp_modes()])
-                    self["vs_speed"].input.addItems([str(x) for x in self.cam.get_all_vsspeeds()])
+                    amp_mode_fun = self.parent_piece.params["amp_mode_list_getter"].get_value()
+                    self["amp_mode"].input.addItems([f"{x.hsspeed:1d}: {x.hsspeed_MHz:.2f}MHz, {x.preamp:1d}: {x.preamp_gain:.1f}" for x in amp_mode_fun])
+                    self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].get_value()])
                     self.params["input_port"].input.addItems(["side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
@@ -31,8 +35,6 @@ class Settings(pzp.piece.Popup):
             self["slit_width"].get_value()
             
         relaod_dropdowns()
-
-        return super().define_params()
     
     def define_actions(self):
         self.add_child_actions(["Take background", "ROI", "Export device info"])
@@ -101,10 +103,6 @@ class Base(pzp.Piece):
 
                     # Initialise camera default amp mode
                     self.cam.init_amp_mode()
-                    self["amp_mode"].input.clear()
-                    self["amp_mode"].input.addItems([str(x) for x in self.cam.get_all_amp_modes()])
-                    self["vs_speed"].input.clear()
-                    self["vs_speed"].input.addItems([str(x) for x in self.cam.get_all_vsspeeds()])
                     self["grating"].input.clear()
                     for i in np.arange(self.spec.get_gratings_number())+1:
                         TGratingInfo = self.spec.get_grating_info(i)
@@ -135,6 +133,26 @@ class Base(pzp.Piece):
                     self.dispose()
                 return 0
     
+        # Getter for vs_speed list
+        @pzp.readout.define(self, "vs_speed_list_getter", visible=False)
+        @self._ensure_connected
+        def vs_speed_list_getter(self):
+            if not self.puzzle.debug:
+                list = self.cam.get_all_vsspeeds()
+            else:
+                list = []
+            return list
+
+        # Getter for amp_mode list
+        @pzp.readout.define(self, "amp_mode_list_getter", visible=False)
+        @self._ensure_connected
+        def amp_mode_list_getter(self):
+            if not self.puzzle.debug:
+                list = self.cam.get_all_amp_modes()
+            else:
+                list = []
+            return list
+        
         # Getter for camera temperature status
         @pzp.readout.define(self, "temp_status")
         @self._ensure_connected
@@ -144,7 +162,7 @@ class Base(pzp.Piece):
             else:
                 status = "stabilized"
             if status == "not_reached" or status == "not_stabilized":
-                temperature = f"{self.cam.get_temperature()}°C"
+                temperature = f"{self.cam.get_temperature():.2f}°C"
                 self.params["temp_status"].input.setStyleSheet("background-color: yellow")
                 return temperature
             elif status != "stabilized":
@@ -159,8 +177,10 @@ class Base(pzp.Piece):
         def exposure(self, value):
             if self.puzzle.debug:
                 return value
-            self.call_stop()
-            self.cam.set_exposure(value*1e-6)
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(1)
+            self.cam.set_exposure(value*1e-3)
 
         @exposure.set_getter(self)
         @self._ensure_connected
@@ -168,8 +188,13 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['exposure'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.cam.get_exposure()*1e6
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(1)
+            return self.cam.get_exposure()*1e3
 
+
+        ### AMP MODE STILL CANNOT SET PROPERLY
         # Set amp mode
         @pzp.param.dropdown(self, "amp_mode", "", visible=False)
         def amp_mode(self):
@@ -181,14 +206,16 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['amp_mode'].value
             amp_mode_fun = self.cam.get_amp_mode()
-            return [amp_mode_fun.channel, amp_mode_fun.oamp, amp_mode_fun.hsspeed, amp_mode_fun.preamp]
+            return f"{amp_mode_fun.hsspeed:1d}: {amp_mode_fun.hsspeed_MHz:.2f}MHz, {amp_mode_fun.preamp:1d}: {amp_mode_fun.preamp_gain:.1f}"
 
         @amp_mode.set_setter(self)
         @self._ensure_connected
         def amp_mode(self, value):
             if not self.puzzle.debug:
                 self.call_stop()
-                self.cam.set_amp_mode(self.params["amp_mode"].value)
+                amp_value = self.params["amp_mode"].value
+                amp_input = [ int(amp_value.split(":")[0]), int(amp_value.split(":")[1].split(",")[1]) ]
+                self.cam.set_amp_mode(0, 0, *amp_input)
             return value
 
         # Set VS speed mode (vertical shift speed)
@@ -201,14 +228,16 @@ class Base(pzp.Piece):
         def vs_speed(self):
             if self.puzzle.debug:
                 return self.params['vs_speed'].value
-            return self.cam.get_max_vsspeed()
+            vsspeed_idx = self.cam.get_vsspeed()
+            return f"{vsspeed_idx:2d}: {self.cam.get_all_vsspeeds()[vsspeed_idx]:02f}"
 
         @vs_speed.set_setter(self)
         @self._ensure_connected
         def vs_speed(self, value):
             if not self.puzzle.debug:
                 self.call_stop()
-                self.cam.set_vsspeed(self.params["vs_speed"].value)
+                idx = int(self.params["vs_speed"].value.spilt(":")[0])
+                self.cam.set_vsspeed(idx)
             return value
 
         # Setup ROI
@@ -217,18 +246,17 @@ class Base(pzp.Piece):
             return None
             
         @roi.set_getter(self)
-        @self._ensure_connected
         def roi(self):
-            if not self.puzzle.debug:
+            if not self.puzzle.debug and self.params["connected"].value:
                 return self.cam.get_roi()[:4]
             return self.params['roi'].value
 
         @roi.set_setter(self)
-        @self._ensure_connected
         def roi(self, value):
-            if not self.puzzle.debug:
+            if not self.puzzle.debug and self.params["connected"].value:
                 self.call_stop()
-                self.cam.set_roi(*value)
+                roi_for_camInput = [ int(v) for v in value]
+                self.cam.set_roi(*roi_for_camInput, 1, 1)
             self.params["sub_background"].set_value(False)
             return value
 
@@ -260,7 +288,6 @@ class Base(pzp.Piece):
                 image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
                 # cam.snap handled all the acquisition start, wait, and stop 
-                self.call_stop()
                 image = self.cam.snap()
                 if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
@@ -295,6 +322,8 @@ class Base(pzp.Piece):
             image = self.params['image'].get_value()
             return np.amax(image)
         
+
+        ### Timer on cannot change & read grating - need to fix
         # set grating
         @pzp.param.dropdown(self, "grating", "")
         def grating(self):
@@ -308,7 +337,7 @@ class Base(pzp.Piece):
             self.call_stop()
             grat_idx = self.spec.get_grating()
             grat_info = self.spec.get_grating_info(grat_idx)
-            return f"{grat_idx:02d} - {grat_info}"
+            return f"{grat_idx:02d} - {int(grat_info.lines)} lpmm, {grat_info.blaze_wavelength}"
 
         @grating.set_setter(self)
         @self._ensure_connected
@@ -322,6 +351,7 @@ class Base(pzp.Piece):
         
         self.params["grating"].input.setMinimumWidth(160)
         
+        ### Timer on cannot read & write value
         # Set centre wavelength
         @pzp.param.spinbox(self, "centre", 0.0)
         def centre(self, value):
@@ -378,12 +408,17 @@ class Base(pzp.Piece):
             return value
 
         # Set input slit width
-        @pzp.param.spinbox(self, "slit_width", 8.0, visible=False)
+        @pzp.param.spinbox(self, "slit_width", 8, v_max=2500, v_min=0, visible=False)
         @self._ensure_connected
         def slit_width(self, value):
             if self.puzzle.debug:
                 return value
-            self.spec.set_slit_width("input_"+self.params["input_port"].value, value*1e-6)
+            try:
+                ### Set slit issue - increase slit width no problem, but it take ~1 mins to decrease the slit at the first time?
+                timeout_func(lambda: self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6), timeout=10)
+            except Exception as e:
+                raise e
+            # self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
 
         @slit_width.set_getter(self)
         @self._ensure_connected
@@ -405,7 +440,7 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 roi_limits = self.cam.get_roi_limits()
                 # Issue here
-                self.params['roi'].set_value([0, int(roi_limits[0].max)-1, 0, int(roi_limits[1].max)-1])
+                self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
                 # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
                 self.params['roi'].set_value([0, 1279, 0, 255])
@@ -497,7 +532,7 @@ class Base(pzp.Piece):
         if self.puzzle.debug and self.params["background"].get_value() is None:
             raise Exception("Background is not taken") 
         roi = self.params["roi"].get_value()
-        if self.params["background"].get_value().shape != (roi[3] - roi[2] + 1, roi[1] - roi[0] + 1):
+        if self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
             raise Exception("Background ROI not match") 
 
     def setup(self):
@@ -661,7 +696,7 @@ class LineoutPiece(Piece):
 
         # Add a PuzzleTimer for live view
         if not self.puzzle.debug:
-            delay = 0.1             # CHECK - Change to smaller value for faster refresh, but stable
+            delay = 0.05             # CHECK - Change to smaller value for faster refresh, but stable
         else:
             delay = 0.1
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
@@ -785,7 +820,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.show()
     app.exec()

@@ -9,7 +9,7 @@ class Piece(pzp.Piece):
         ctr_ports = ["CTR0", "CTR1", "CTR2"]
         self.params["counter"].input.addItems(ctr_ports)
 
-        pfi_ports = ["PFI0", "PFI1", "PFI2"]
+        pfi_ports = ["PFI12", "PFI11", "PFI10"]
         self.params["PFI port"].input.addItems(pfi_ports)
 
     def define_params(self):
@@ -20,6 +20,7 @@ class Piece(pzp.Piece):
 
         @counter.set_setter(self)
         def counter(self, value):
+            self.params["armed"].set_value(False)
             return value
 
         # Set PFI output port
@@ -29,13 +30,34 @@ class Piece(pzp.Piece):
 
         @pfi_port.set_setter(self)
         def pfi_port(self, value):
+            self.params["armed"].set_value(False)
             return value
     
+        @pzp.param.spinbox(self, "Rep rate", 1.0)
+        def rep_rate(self, value):
+            self.params["armed"].set_value(False)
+            
+        # Set the channels and rep. rate 
+        @pzp.param.checkbox(self, "armed", 0)
+        def armed(self, value):
+            if self.puzzle.debug:
+                self.params["Unlock"].set_value(False)
+                return value
+            current_value = self.params['armed'].value
+            if value and not current_value:
+                max_freq = self.params["Rep rate"].get_value() * 1e3
+                period = 1/max_freq
+                self.puzzle["NIDAQ"].daq.add_pulse_output("laser_trigger", "ctr0", "pfi12", kind='time', on=period/2, off=period/2, clk_src=None, continuous=True, samps=1)
+                return True
+            self.params["Unlock"].set_value(False)
+            return False
+
         #  Safety precaution - Trigger unlock button
         @pzp.param.checkbox(self, "Unlock", False, visible=True)
         def unlock(self, value):
             current_value = self.params['Unlock'].value
             if value and not current_value:
+                self._ensure_armed()
                 self.params["Unlock"].input.setStyleSheet("background-color: #fffba0")
                 return True
             elif current_value:
@@ -61,8 +83,8 @@ class Piece(pzp.Piece):
                     # Start pulse train
                     print("fire!!")
                     self.params["FIRE LASER"].input.setStyleSheet("background-color: #ff0000")
-                    self.daq.set_pulse_output("laser_trigger", continuous=True)
-                    self.daq.start_pulse_output(names="laser_trigger", autostop=False)
+                    self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=True)
+                    self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=False)
                     return True
                 except Exception as e:
                     self.kill_laser_output()
@@ -84,8 +106,8 @@ class Piece(pzp.Piece):
         def trigger_pulse(self):
             print('pulse')
             if not self.puzzle.debug:
-                self.daq.set_pulse_output("laser_trigger", continuous=False, samps=1)
-                self.daq.start_pulse_output(names="laser_trigger", autostop=True)
+                self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=False, samps=1)
+                self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
 
 
     # Ensure devices are connected
@@ -95,18 +117,18 @@ class Piece(pzp.Piece):
             self.puzzle["NIDAQ"]._ensure_connected()
 
     @pzp.piece.ensurer        
+    def _ensure_armed(self):
+        if not self.params["armed"].value:
+            raise Exception("Arm trigger output port settings first")
+
+    @pzp.piece.ensurer        
     def _ensure_unlocked(self):
         if not self.params["Unlock"].value:
             raise Exception("Unlock laser trigger first")
 
-    def setup(self):
-        max_freq = 50e3
-        period = 1/max_freq
-        self.daq.add_pulse_output("laser_trigger", "ctr0", "pfi0", kind='time', on=period/2, off=period/2, clk_src=None, continuous=True, samps=1)
-
     def kill_laser_output(self):
         if not self.puzzle.debug:
-            self.daq.stop_pulse_output(names="laser_trigger")
+            self.puzzle["NIDAQ"].daq.stop_pulse_output(names="laser_trigger")
 
 if __name__ == "__main__":
     import NIDAQ
@@ -116,3 +138,4 @@ if __name__ == "__main__":
     puzzle.add_piece("Spot laser", Piece(puzzle), 1, 0)
     puzzle.show()
     app.exec()
+

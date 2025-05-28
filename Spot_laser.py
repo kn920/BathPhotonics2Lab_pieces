@@ -37,13 +37,8 @@ class Piece(pzp.Piece):
             current_value = self.params['connected'].value
             if value and not current_value:
                 try:
-                    self.SerialObj = serial.Serial(self.params["COM"].value())
-                    self.SerialObj.baudrate = 9600  # Set Baud rate to 9600
-                    self.SerialObj.bytesize = 8   # Number of data bits = 8
-                    self.SerialObj.parity  ='N'   # No parity
-                    self.SerialObj.stopbits = 1   # Number of Stop bits = 1
-                    self.SerialObj.timeout = 5   # Set timeout to 5 seconds
-                    self.params["status"].get_value()
+                    self.SerialObj = serial.Serial(port=self.params["COM"].value, timeout=0.3)
+                    # self.params["status"].get_value()
 
                     return 1
                 except Exception as e:
@@ -55,6 +50,7 @@ class Piece(pzp.Piece):
                 self.dispose()
                 return 0
 
+        ### Need to decode - list()?
         # Readout status
         @pzp.param.readout(self, "status")
         @self._ensure_connected
@@ -70,6 +66,7 @@ class Piece(pzp.Piece):
 
     def define_actions(self):
 
+        ### write to the COM need "\n" or "\r"?
         @pzp.action.define(self, 'power up')
         @self._ensure_connected
         def power_up(self):
@@ -108,7 +105,7 @@ class Piece(pzp.Piece):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     puzzle.add_piece("Spot laser", Piece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
