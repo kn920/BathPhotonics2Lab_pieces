@@ -50,7 +50,7 @@ class Piece(pzp.Piece):
 if __name__ == "__main__":
     import NIDAQ
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 0)
     puzzle.add_piece("AOM", Piece(puzzle), 1, 0)
     puzzle.show()

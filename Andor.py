@@ -3,7 +3,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import numpy as np
 from PIL import Image
-import datasets as ds
+from datasetsuite import datasets as ds
 import datetime
 from timeout import timeout_func
 import time
@@ -292,7 +292,7 @@ class Base(pzp.Piece):
                 if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
-                image -= self.params['background'].get_value()
+                image = image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
             if image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
             return image
@@ -529,10 +529,10 @@ class Base(pzp.Piece):
     # Ensure background is taken
     @pzp.piece.ensurer        
     def _ensure_background_exist(self):
-        if self.puzzle.debug and self.params["background"].get_value() is None:
+        if not self.puzzle.debug and self.params["background"].get_value() is None:
             raise Exception("Background is not taken") 
         roi = self.params["roi"].get_value()
-        if self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
+        if not self.puzzle.debug and self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
             raise Exception("Background ROI not match") 
 
     def setup(self):
@@ -820,7 +820,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
