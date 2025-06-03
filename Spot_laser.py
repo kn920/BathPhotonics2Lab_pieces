@@ -1,10 +1,15 @@
 import puzzlepiece as pzp
 from pyqtgraph.Qt import QtWidgets
+import pyqtgraph as pg
 import serial
 import serial.tools.list_ports
 import datetime
 
 class Piece(pzp.Piece):
+    def __init__(self, puzzle):
+        # Move the custom_layout to the right of the generated inputs
+        super().__init__(puzzle, custom_horizontal=True)
+    
     def define_params(self):
 
         # Set COM port
@@ -57,7 +62,8 @@ class Piece(pzp.Piece):
         def status(self):
             if not self.puzzle.debug:
                 self.params["timestamp"].set_value(datetime.datetime.now().strftime(f"%d/%m/%Y\n %H:%M:%S"))
-                return self.SerialObj.readline()
+                line = self.actions["readline"]()
+                return line
             self.params["timestamp"].set_value(datetime.datetime.now().strftime(f"%d/%m/%Y\n %H:%M:%S"))
             return "debug mode"
         
@@ -65,6 +71,12 @@ class Piece(pzp.Piece):
         pzp.param.readout(self, "timestamp")(None)
 
     def define_actions(self):
+        @pzp.action.define(self, 'readline', visible=False)
+        def readline(self):
+            if not self.puzzle.debug:
+                value = self.SerialObj.read_until()
+                return str(value, "UTF-8")
+            return ''
 
         ### write to the COM need "\n" or "\r"?
         @pzp.action.define(self, 'power up')
@@ -103,9 +115,21 @@ class Piece(pzp.Piece):
     def handle_close(self, event):
         self.dispose()
 
+
+    def custom_layout(self):
+        layout = QtWidgets.QGridLayout()
+        # Add a PuzzleTimer for live view
+        delay = 1.0             # CHECK - Change to smaller value for faster refresh, but stable
+        self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle,  self.params["status"].get_value, delay)
+        layout.addWidget(self.timer)
+        return layout
+
+    def call_stop(self):
+        self.timer.stop()
+
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     puzzle.add_piece("Spot laser", Piece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
