@@ -74,30 +74,38 @@ class Piece(pzp.Piece):
         @pzp.action.define(self, 'readline', visible=False)
         def readline(self):
             if not self.puzzle.debug:
-                value = self.SerialObj.read_until()
-                return str(value, "UTF-8")
-            return ''
+                value = self.SerialObj.readline().decode('utf-8', errors='ignore')
+                # print(repr(value))
+                if value == "....":
+                    value = "RAMPING"
+                if value == "\r\x11\x13*\r\n" or value == "\x11" or value == "\x13":
+                    return self.params["status"].value
+                elif "\x13" in value:
+                    value = value.strip("\x11").strip("\x13")
+                if value:
+                    return value
+                return self.params["status"].value
 
         ### write to the COM need "\n" or "\r"?
         @pzp.action.define(self, 'power up')
         @self._ensure_connected
         def power_up(self):
             if not self.puzzle.debug:
-                self.SerialObj.write(b'+')
+                self.SerialObj.write(('+\n').encode('utf-8'))
             self.params["status"].get_value()
             
         @pzp.action.define(self, 'power down')
         @self._ensure_connected
         def power_down(self):
             if not self.puzzle.debug:
-                self.SerialObj.write(b'-')
+                self.SerialObj.write(('-\n').encode('utf-8'))
             self.params["status"].get_value()
 
         @pzp.action.define(self, 'ping')
         @self._ensure_connected
         def ping(self):
             if not self.puzzle.debug:
-                self.SerialObj.write(b'?')
+                self.SerialObj.write(('?\n').encode('utf-8'))
             self.params["status"].get_value()
 
     # Ensure devices are connected
@@ -119,7 +127,7 @@ class Piece(pzp.Piece):
     def custom_layout(self):
         layout = QtWidgets.QGridLayout()
         # Add a PuzzleTimer for live view
-        delay = 1.0             # CHECK - Change to smaller value for faster refresh, but stable
+        delay = 1.5          # CHECK - Change to smaller value for faster refresh, but stable
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle,  self.params["status"].get_value, delay)
         layout.addWidget(self.timer)
         return layout
@@ -129,7 +137,7 @@ class Piece(pzp.Piece):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     puzzle.add_piece("Spot laser", Piece(puzzle), 0, 0)
     puzzle.show()
     app.exec()

@@ -363,8 +363,6 @@ class Base(pzp.Piece):
             image = self.params['image'].get_value()
             return np.amax(image)
         
-
-        ### Timer on cannot change & read grating - need to fix
         # set grating
         @pzp.param.dropdown(self, "grating", "")
         def grating(self):
@@ -375,7 +373,9 @@ class Base(pzp.Piece):
         def grating(self):
             if self.puzzle.debug:
                 return self.params['grating'].value
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
             grat_idx = self.spec.get_grating()
             grat_info = self.spec.get_grating_info(grat_idx)
             return f"{grat_idx:02d} - {int(grat_info.lines)} lpmm, {grat_info.blaze_wavelength}"
@@ -386,13 +386,15 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 if self.params['start_acquisition'].get_value() == True:
                     self.params['start_acquisition'].set_value(False)
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
                 grat_idx = int(value.split(" - ")[0])
                 self.spec.set_grating(grat_idx)
             return value
         
         self.params["grating"].input.setMinimumWidth(160)
         
-        ### Timer on cannot read & write value
         # Set centre wavelength
         @pzp.param.spinbox(self, "centre", 0.0)
         def centre(self, value):
@@ -410,6 +412,7 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['centre'].value
             # If we're connected and not in debug mode, return the wavelength from the spec
+            self.call_stop()
             return self.spec.get_wavelength()*1e9
 
         # Get wavelength calibration
@@ -468,7 +471,8 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
-            return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
+            # return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
+            return self.spec.get_slit_width("input_side") * 1e6
 
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
@@ -861,7 +865,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
