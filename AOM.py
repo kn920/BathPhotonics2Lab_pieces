@@ -1,6 +1,5 @@
 import puzzlepiece as pzp
 from pyqtgraph.Qt import QtWidgets
-from pylablib.devices import NI
 
 class Piece(pzp.Piece):
     def __init__(self, puzzle):
@@ -22,7 +21,6 @@ class Piece(pzp.Piece):
         @self._ensure_daq
         def ao_port(self, value):
             if not self.puzzle.debug:
-                # DOUBLE CHECK the MOD range 
                 self.puzzle["NIDAQ"].daq.add_voltage_output("AOM_mod_in", value.lower(), rng=(0, 5), initial_value=0.0)
             return value
 
@@ -52,7 +50,7 @@ class Piece(pzp.Piece):
 if __name__ == "__main__":
     import NIDAQ
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 0)
     puzzle.add_piece("AOM", Piece(puzzle), 1, 0)
     puzzle.show()
