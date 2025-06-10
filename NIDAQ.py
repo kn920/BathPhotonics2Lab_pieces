@@ -16,12 +16,14 @@ class Piece(pzp.Piece):
             if value and not current_value:
                 try:
                     self.daq = NI.NIDAQ("Dev1")
+                    if not self.daq.is_opened():
+                        raise Exception("NI DAQ not connected")
                     return 1
                 except Exception as e:
                     self.dispose()
                     raise e
                 
-            elif current_value:
+            elif current_value and not value:
                 # Disconnect
                 self.dispose()
                 return 0

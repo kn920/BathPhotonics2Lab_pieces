@@ -5,7 +5,7 @@ import pyqtgraph as pg
 from pyqtgraph.graphicsItems.NonUniformImage import NonUniformImage
 
 import puzzlepiece as pzp
-from datasetsuite import datasets as ds
+import datasets as ds
 import datetime
 
 
@@ -22,7 +22,7 @@ class Piece(pzp.Piece):
         pzp.param.progress(self, "progress")(None)
 
 
-    def _take_ll(self, image_param, pulse_train_param, wl):
+    def _take_ll(self, image_param, sub_bg_param, pulse_train_param, wl):
         positions = np.linspace(self["start"].value, self["end"].value, self["N"].value)
         vary = pzp.parse.parse_params(self["vary"].value, self.puzzle)[0]
 
@@ -35,8 +35,9 @@ class Piece(pzp.Piece):
         background = image_param.get_value()
         self.puzzle.process_events()
         
+        sub_bg_param.set_value(False)
         # Make empty arrays for the values
-        spectra = np.zeros((len(positions), *background.shape), np.ushort)
+        spectra = np.zeros((len(positions), *background.shape), np.int32)
         powers = np.zeros(len(positions))
         
         # Free-running laser
@@ -49,6 +50,7 @@ class Piece(pzp.Piece):
                 pulse_train_param.set_value(0)
                 raise Exception("Scan range over the limits")
             vary.set_value(pos)
+
             spectra[i] = image_param.get_value()
             # powers[i] = self.puzzle['powermeter']['power'].get_value()
             if self.stop:
@@ -71,6 +73,8 @@ class Piece(pzp.Piece):
         
         self.update_plot(ll)
         self.elevate()
+        
+        sub_bg_param.set_value(True)
 
         return ll
 
@@ -79,6 +83,7 @@ class Piece(pzp.Piece):
         def scan(self):
             ll = self._take_ll(
                 self.puzzle["Andor"]["image"],
+                self.puzzle["Andor"]["sub_background"],
                 self.puzzle["Spot trigger"]["FIRE LASER"],
                 self.puzzle["Andor"]["wls"].value
             )
@@ -112,8 +117,8 @@ class Piece(pzp.Piece):
         # except:
         ui = pg.ImageItem(values.T)
         self.plot1.addItem(ui)
-        self.plot_line1.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw.astype(int) - np.sum(ll.metadata['background'].astype(int)))
-        self.plot_line2.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw.astype(int) - np.sum(ll.metadata['background'].astype(int)))
+        self.plot_line1.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw - np.sum(ll.metadata['background']))
+        self.plot_line2.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw - np.sum(ll.metadata['background']))
 
 
 if __name__ == "__main__":
