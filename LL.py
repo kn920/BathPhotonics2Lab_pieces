@@ -5,7 +5,7 @@ import pyqtgraph as pg
 from pyqtgraph.graphicsItems.NonUniformImage import NonUniformImage
 
 import puzzlepiece as pzp
-from datasetsuite import datasets as ds
+import datasets as ds
 import datetime
 
 
