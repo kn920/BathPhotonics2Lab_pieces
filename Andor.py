@@ -298,8 +298,6 @@ class Base(pzp.Piece):
                 self.call_stop()
                 roi_for_camInput = [ int(v) for v in value]
                 self.cam.set_roi(*roi_for_camInput, 1, 1)
-                if self.params['FVB mode'].value:
-                    self.cam.set_read_mode("fvb")
             self.params["sub_background"].set_value(False)
             return value
 
@@ -443,6 +441,7 @@ class Base(pzp.Piece):
                     return 1
                 elif current_value and not value:
                     self.cam.set_read_mode("image")
+                    self.actions["Reset ROI"]()
                     return 0
 
         # Set input port
@@ -500,6 +499,7 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 roi_limits = self.cam.get_roi_limits()
                 # Issue here
+                print('Triggered', roi_limits)
                 self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
                 # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
@@ -593,9 +593,9 @@ class Base(pzp.Piece):
             raise Exception("Background is not taken") 
         roi = self.params["roi"].get_value()
         if not self.puzzle.debug:
-            if self.params["FVB mode"] and self.params["background"].get_value().shape[1] !=  roi[1] - roi[0]:
+            if self.params["FVB mode"] and self.params["background"].get_value().shape[1] !=  (roi[1] - roi[0]):
                 raise Exception("Background ROI not match") 
-            elif self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
+            elif not self.params["FVB mode"] and self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
                 raise Exception("Background ROI not match") 
 
     def setup(self):
@@ -793,11 +793,11 @@ class LineoutPiece(Piece):
             c = wl_min
             return m ,c
 
-        # def sync_plot_fvb(vb):
-        #     main_xrange = vb.viewRange()[0]  # [min, max] from plot_main
-        #     m, c = px2wl_mapping()
-        #     scaled_xrange = [x*m+c for x in main_xrange]  # Scaling
-        #     plot_fvb.setXRange(*scaled_xrange, padding=0)
+        def sync_plot_fvb(vb):
+            main_xrange = vb.viewRange()[0]  # [min, max] from plot_main
+            m, c = px2wl_mapping()
+            scaled_xrange = [x*m+c for x in main_xrange]  # Scaling
+            plot_fvb.setXRange(*scaled_xrange, padding=0)
 
         def sync_plot_main(vb):       
                 fvb_xrange = vb.viewRange()[0]  # [min, max] from plot_fvb
@@ -865,17 +865,17 @@ class LineoutPiece(Piece):
             i = int(self._inf_line_y.value())
             plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
                 
-            # plot_line_fvb.setData(self.params["wls"].value, image_data.sum(axis=0))
-            # m, c = px2wl_mapping()
-            # self._inf_line_fvb.setPos([x*m+c for x in self._inf_line_y.getPos()])
+            plot_line_fvb.setData(self.params["wls"].value, image_data.sum(axis=0))
+            m, c = px2wl_mapping()
+            self._inf_line_fvb.setPos([x*m+c for x in self._inf_line_y.getPos()])
              
         update_later = pzp.threads.CallLater(update_image)
         self.params['image'].changed.connect(update_later)
         self._inf_line_x.sigPositionChanged.connect(update_later)
         self._inf_line_y.sigPositionChanged.connect(update_later)
 
-        # plot_main.sigXRangeChanged.connect(sync_plot_fvb)
-        # plot_fvb.sigXRangeChanged.connect(sync_plot_main)
+        plot_main.sigXRangeChanged.connect(sync_plot_fvb)
+        plot_fvb.sigXRangeChanged.connect(sync_plot_main)
 
         return layout
     
