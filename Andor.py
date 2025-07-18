@@ -3,7 +3,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import numpy as np
 from PIL import Image
-from datasetsuite import datasets as ds
+import datasets as ds
 import datetime
 # import timeout
 import time
