@@ -51,7 +51,7 @@ def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
 class Settings(pzp.piece.Popup):
     def define_params(self):
         super().define_params()
-        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background", "start_acquisition"])
+        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background"])
         
         # Reload dropdown lists when Settings popup opened
         def relaod_dropdowns():    
@@ -124,8 +124,6 @@ class Base(pzp.Piece):
                 for i in B1:
                         self["grating"].input.addItem(f"{i:02d} - {B2[i-1]}")
 
-                self.params["start_acquisition"].set_value(False)
-
                 self.params["input_port"].input.addItems(["side"])
 
                 self.params["slit_width"].set_value(8)
@@ -161,8 +159,6 @@ class Base(pzp.Piece):
                     self.cam.set_read_mode("image")
                     # Set shutter state to Auto
                     self.cam.setup_shutter('auto')
-                    # Set start_acquisition param
-                    self.params["start_acquisition"].set_value(False)
                     
                     # Obtain vs_speed_list
                     self.params["vs_speed_list_getter"].get_value()
@@ -210,13 +206,13 @@ class Base(pzp.Piece):
                 status = "stabilized"
             if status == "not_reached" or status == "not_stabilized":
                 temperature = f"{self.cam.get_temperature():.2f}°C"
-                self.params["temp_status"].input.setStyleSheet("background-color: red")
-                return temperature
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: red")
+                return f"        {temperature}\t"
             elif status != "stabilized":
-                self.params["temp_status"].input.setStyleSheet("background-color: red")
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: red")
             else:
-                self.params["temp_status"].input.setStyleSheet("background-color: blue") 
-            return status
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: blue") 
+            return f"\t{status}\t"
 
         # Set exposure time
         @pzp.param.spinbox(self, "exposure", 10.)
@@ -226,7 +222,7 @@ class Base(pzp.Piece):
                 return value
             if self.timer.input.isChecked():
                 self.call_stop()
-                time.sleep(1)
+                time.sleep(0.5)
             self.cam.set_exposure(value*1e-3)
 
         @exposure.set_getter(self)
@@ -237,7 +233,7 @@ class Base(pzp.Piece):
             # If we're connected and not in debug mode, return the exposure from the camera
             if self.timer.input.isChecked():
                 self.call_stop()
-                time.sleep(1)
+                time.sleep(0.5)
             return self.cam.get_exposure()*1e3
 
 
@@ -252,8 +248,9 @@ class Base(pzp.Piece):
         def amp_mode(self):
             if self.puzzle.debug:
                 return self.params['amp_mode'].value
-            self.call_stop()
-            time.sleep(1)
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
             amp_mode_fun = self.cam.get_amp_mode()
             return f"{amp_mode_fun.hsspeed:1d}: {amp_mode_fun.hsspeed_MHz:.2f}MHz, {amp_mode_fun.preamp:1d}: {amp_mode_fun.preamp_gain:.1f}"
 
@@ -261,8 +258,9 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def amp_mode(self, value):
             if not self.puzzle.debug:
-                self.call_stop()
-                time.sleep(1)
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
                 amp_value = value
                 amp_input = [ int(amp_value.split(":")[0]), int(amp_value.split(":")[1].split(",")[1]) ]
                 self.cam.set_amp_mode(0, 0, *amp_input)
@@ -285,8 +283,9 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def vs_speed(self, value):
             if not self.puzzle.debug:
-                self.call_stop()
-                time.sleep(1)
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
                 idx = np.argmin(np.abs(np.array(self.params['vs_speed_list_getter'].value) - float(value)))
                 self.cam.set_vsspeed(idx)
             return value
@@ -305,28 +304,13 @@ class Base(pzp.Piece):
         @roi.set_setter(self)
         def roi(self, value):
             if not self.puzzle.debug and self.params["connected"].value:
-                self.call_stop()
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
                 roi_for_camInput = [ int(v) for v in value]
                 self.cam.set_roi(*roi_for_camInput, 1, 1)
             self.params["sub_background"].set_value(False)
             return value
-
-        @pzp.param.checkbox(self, "start_acquisition", 0, visible=False)
-        @self._ensure_connected
-        def start_acquisition(self, value):
-            if self.puzzle.debug:
-                return value
-            
-            current_value = self.params['start_acquisition'].value
-            if value and not current_value:
-                # start acquisition
-                self.cam.start_acquisition()
-                return 1
-            elif current_value:
-                # stop acquisition
-                self.cam.stop_acquisition()
-                return 0
-            
 
         # Image getter
         @pzp.param.array(self, 'image')
@@ -395,8 +379,6 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def grating(self, value:str):
             if not self.puzzle.debug:
-                if self.params['start_acquisition'].get_value() == True:
-                    self.params['start_acquisition'].set_value(False)
                 if self.timer.input.isChecked():
                     self.call_stop()
                     time.sleep(0.5)
@@ -409,9 +391,10 @@ class Base(pzp.Piece):
         # Set centre wavelength
         @pzp.param.spinbox(self, "centre", 0.0)
         def centre(self, value):
-            self.call_stop()
             if self.puzzle.debug:
                 return value
+            if self.timer.input.isChecked():
+                self.call_stop()
             if value == 0:
                 self.spec.goto_zero_order()
             else:
@@ -423,7 +406,8 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['centre'].value
             # If we're connected and not in debug mode, return the wavelength from the spec
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
             return self.spec.get_wavelength()*1e9
 
         # Get wavelength calibration
@@ -472,8 +456,9 @@ class Base(pzp.Piece):
         @input_port.set_setter(self)
         @self._ensure_connected
         def input_port(self, value):
-            self.call_stop()
-            time.sleep(1)
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
             if not self.puzzle.debug:
                 self.spec.set_flipper_port(1, value)
             return value
@@ -494,7 +479,8 @@ class Base(pzp.Piece):
         @slit_width.set_getter(self)
         @self._ensure_connected
         def slit_width(self):
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
             if self.puzzle.debug:
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
@@ -523,6 +509,8 @@ class Base(pzp.Piece):
 
         @pzp.action.define(self, "Save image")
         def save_image(self, filename=None):
+            if self.timer.input.isChecked():
+                self.call_stop()
             image = self.params['image'].value
             if image is None:
                 image = self.params['image'].get_value()
@@ -568,6 +556,11 @@ class Base(pzp.Piece):
 
         @pzp.action.define(self, "Save data")
         def save_data(self):
+            if self.timer.input.isChecked():
+                self.call_stop()
+            original_sub_background = self.params["sub_background"].get_value()
+            if original_sub_background:
+                self.params["sub_background"].set_value(False)
 
             filename = self.params["filename"].value
             if filename == "":
@@ -576,14 +569,21 @@ class Base(pzp.Piece):
                     '.', "dataset file (*.ds)")
             image = self.params["image"].value
             dat = ds.dataset(image, y_pixel=np.arange(image.shape[0]), wls=self.params["wls"].get_value())
-            dat.metadata["background"] = self.params["background"].get_value()
+            if original_sub_background:
+                dat.metadata["background"] = self.params["background"].get_value()
+            else:
+                dat.metadata["background"] = []
             dat.metadata["exposure"] = self.params["exposure"].get_value()
-            dat.metadata["grating"] = self.params["grating"].value
+            dat.metadata["grating"] = self.params["grating"].get_value()
+            dat.metadata["centre"] = self.params["centre"].get_value()
+            dat.metadata["FVB mode"] = self.params["FVB mode"].value
             dat.metadata["amp_mode"] = self.params["amp_mode"].value
             dat.metadata["vs_speed"] = self.params["vs_speed"].value
-            dat.metadata["slit_width"] = self.params["slit_width"].get_value()
+            dat.metadata["slit_width"] = self.params["slit_width"].value
             dat.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             dat.save(filename, 2)
+            if original_sub_background:
+                self.params["sub_background"].set_value(True)
             
             # For "filename" textbox not visible
             self.params["filename"].set_value = ""
