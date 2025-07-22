@@ -50,15 +50,15 @@ def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
 class Settings(pzp.piece.Popup):
     def define_params(self):
         super().define_params()
-        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background", "start_acquisition"])
+        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background"])
         
         # Reload dropdown lists when Settings popup opened
         def relaod_dropdowns():    
             try:
                 if not self.puzzle.debug:
-                    amp_mode_fun = self.parent_piece.params["amp_mode_list_getter"].get_value()
+                    amp_mode_fun = self.parent_piece.params["amp_mode_list_getter"].value
                     self["amp_mode"].input.addItems([f"{x.hsspeed:1d}: {x.hsspeed_MHz:.2f}MHz, {x.preamp:1d}: {x.preamp_gain:.1f}" for x in amp_mode_fun])
-                    self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].get_value()])
+                    self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].value])
                     self.params["input_port"].input.addItems(["side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
@@ -123,8 +123,6 @@ class Base(pzp.Piece):
                 for i in B1:
                         self["grating"].input.addItem(f"{i:02d} - {B2[i-1]}")
 
-                self.params["start_acquisition"].set_value(False)
-
                 self.params["input_port"].input.addItems(["side"])
 
                 self.params["slit_width"].set_value(30)
@@ -152,15 +150,19 @@ class Base(pzp.Piece):
 
                     # Set cooler on
                     self.cam.set_cooler(on=True)
+                    # Set temperature setpoint
+                    self.cam.set_temperature(-70)
                     # Set acquisition mode to Single scan
                     self.cam.set_acquisition_mode("single")
                     # Set readout mode to Image
                     self.cam.set_read_mode("image")
                     # Set shutter state to Auto
                     self.cam.setup_shutter('auto')
-                    # Set start_acquisition param
-                    self.params["start_acquisition"].set_value(False)
                     
+                    # Obtain vs_speed_list
+                    self.params["vs_speed_list_getter"].get_value()
+                    self.params["amp_mode_list_getter"].get_value()
+
                     self.params["temp_status"].get_value()
                     return 1
                 except Exception as e:
@@ -203,13 +205,13 @@ class Base(pzp.Piece):
                 status = "stabilized"
             if status == "not_reached" or status == "not_stabilized":
                 temperature = f"{self.cam.get_temperature():.2f}°C"
-                self.params["temp_status"].input.setStyleSheet("background-color: yellow")
-                return temperature
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: red")
+                return f"        {temperature}\t"
             elif status != "stabilized":
-                self.params["temp_status"].input.setStyleSheet("background-color: red")
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: red")
             else:
-                self.params["temp_status"].input.setStyleSheet("background-color: #f3f3f3") 
-            return status
+                self.params["temp_status"].input.setStyleSheet("color: white; font-weight:bold; background-color: blue") 
+            return f"\t{status}\t"
 
         # Set exposure time
         @pzp.param.spinbox(self, "exposure", 100.)
@@ -219,7 +221,7 @@ class Base(pzp.Piece):
                 return value
             if self.timer.input.isChecked():
                 self.call_stop()
-                time.sleep(1)
+                time.sleep(0.5)
             self.cam.set_exposure(value*1e-3)
 
         @exposure.set_getter(self)
@@ -230,7 +232,7 @@ class Base(pzp.Piece):
             # If we're connected and not in debug mode, return the exposure from the camera
             if self.timer.input.isChecked():
                 self.call_stop()
-                time.sleep(1)
+                time.sleep(0.5)
             return self.cam.get_exposure()*1e3
 
 
@@ -245,6 +247,9 @@ class Base(pzp.Piece):
         def amp_mode(self):
             if self.puzzle.debug:
                 return self.params['amp_mode'].value
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
             amp_mode_fun = self.cam.get_amp_mode()
             return f"{amp_mode_fun.hsspeed:1d}: {amp_mode_fun.hsspeed_MHz:.2f}MHz, {amp_mode_fun.preamp:1d}: {amp_mode_fun.preamp_gain:.1f}"
 
@@ -252,8 +257,10 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def amp_mode(self, value):
             if not self.puzzle.debug:
-                self.call_stop()
-                amp_value = self.params["amp_mode"].value
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
+                amp_value = value
                 amp_input = [ int(amp_value.split(":")[0]), int(amp_value.split(":")[1].split(",")[1]) ]
                 self.cam.set_amp_mode(0, 0, *amp_input)
             return value
@@ -269,14 +276,16 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['vs_speed'].value
             vsspeed_idx = self.cam.get_vsspeed()
-            return f"{vsspeed_idx:2d}: {self.cam.get_all_vsspeeds()[vsspeed_idx]:02f}"
+            return f"{self.params['vs_speed_list_getter'].value[vsspeed_idx]:.02f}"
 
         @vs_speed.set_setter(self)
         @self._ensure_connected
         def vs_speed(self, value):
             if not self.puzzle.debug:
-                self.call_stop()
-                idx = int(self.params["vs_speed"].value.spilt(":")[0])
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
+                idx = np.argmin(np.abs(np.array(self.params['vs_speed_list_getter'].value) - float(value)))
                 self.cam.set_vsspeed(idx)
             return value
 
@@ -294,28 +303,13 @@ class Base(pzp.Piece):
         @roi.set_setter(self)
         def roi(self, value):
             if not self.puzzle.debug and self.params["connected"].value:
-                self.call_stop()
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
                 roi_for_camInput = [ int(v) for v in value]
                 self.cam.set_roi(*roi_for_camInput, 1, 1)
             self.params["sub_background"].set_value(False)
             return value
-
-        @pzp.param.checkbox(self, "start_acquisition", 0, visible=False)
-        @self._ensure_connected
-        def start_acquisition(self, value):
-            if self.puzzle.debug:
-                return value
-            
-            current_value = self.params['start_acquisition'].value
-            if value and not current_value:
-                # start acquisition
-                self.cam.start_acquisition()
-                return 1
-            elif current_value:
-                # stop acquisition
-                self.cam.stop_acquisition()
-                return 0
-            
 
         # Image getter
         @pzp.param.array(self, 'image')
@@ -335,7 +329,7 @@ class Base(pzp.Piece):
                 image = image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
             if image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
-            return image.astype(np.int32)
+            return image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
@@ -383,8 +377,6 @@ class Base(pzp.Piece):
         @self._ensure_connected
         def grating(self, value:str):
             if not self.puzzle.debug:
-                if self.params['start_acquisition'].get_value() == True:
-                    self.params['start_acquisition'].set_value(False)
                 if self.timer.input.isChecked():
                     self.call_stop()
                     time.sleep(0.5)
@@ -397,9 +389,10 @@ class Base(pzp.Piece):
         # Set centre wavelength
         @pzp.param.spinbox(self, "centre", 0.0)
         def centre(self, value):
-            self.call_stop()
             if self.puzzle.debug:
                 return value
+            if self.timer.input.isChecked():
+                self.call_stop()
             if value == 0:
                 self.spec.goto_zero_order()
             else:
@@ -411,7 +404,8 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['centre'].value
             # If we're connected and not in debug mode, return the wavelength from the spec
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
             return self.spec.get_wavelength()*1e9
 
         # Get wavelength calibration
@@ -429,6 +423,21 @@ class Base(pzp.Piece):
 
         self.params["wls"].set_value(np.linspace(0, 1280, 1280))
 
+        # Toggle between image & full-vertical binning mode
+        @pzp.param.checkbox(self, 'FVB mode', False)
+        def fvb_mode(self, value):
+            if not self.puzzle.debug:
+                current_value = self.params['FVB mode'].value
+                if value and not current_value:
+                    self.cam.set_read_mode("fvb")
+                    self.params["sub_background"].set_value(False)
+                    return 1
+                elif current_value and not value:
+                    self.cam.set_read_mode("image")
+                    self.params["sub_background"].set_value(False)
+                    # self.actions["Reset ROI"]()
+                    return 0
+
         # Set input port
         @pzp.param.dropdown(self, "input_port", "", visible=False)
         def input_port(self):
@@ -445,9 +454,11 @@ class Base(pzp.Piece):
         @input_port.set_setter(self)
         @self._ensure_connected
         def input_port(self, value):
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
             if not self.puzzle.debug:
-                self.spec.set_flipper_port(1, self.params["input_port"].value)
+                self.spec.set_flipper_port(1, value)
             return value
 
         # Set input slit width
@@ -466,7 +477,8 @@ class Base(pzp.Piece):
         @slit_width.set_getter(self)
         @self._ensure_connected
         def slit_width(self):
-            self.call_stop()
+            if self.timer.input.isChecked():
+                self.call_stop()
             if self.puzzle.debug:
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
@@ -476,7 +488,10 @@ class Base(pzp.Piece):
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
         def roi(self):
-            self.open_popup(ROI_Popup)
+            if not self.params["FVB mode"].value:
+                self.open_popup(ROI_Popup)
+            else:
+                raise Exception("No ROI option for FVB mode.")
 
         @pzp.action.define(self, "Reset ROI", visible=False)
         @self._ensure_connected
@@ -484,6 +499,7 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 roi_limits = self.cam.get_roi_limits()
                 # Issue here
+                print('Triggered', roi_limits)
                 self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
                 # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
@@ -491,6 +507,8 @@ class Base(pzp.Piece):
 
         @pzp.action.define(self, "Save image")
         def save_image(self, filename=None):
+            if self.timer.input.isChecked():
+                self.call_stop()
             image = self.params['image'].value
             if image is None:
                 image = self.params['image'].get_value()
@@ -536,6 +554,11 @@ class Base(pzp.Piece):
 
         @pzp.action.define(self, "Save data")
         def save_data(self):
+            if self.timer.input.isChecked():
+                self.call_stop()
+            original_sub_background = self.params["sub_background"].get_value()
+            if original_sub_background:
+                self.params["sub_background"].set_value(False)
 
             filename = self.params["filename"].value
             if filename == "":
@@ -544,14 +567,21 @@ class Base(pzp.Piece):
                     '.', "dataset file (*.ds)")
             image = self.params["image"].value
             dat = ds.dataset(image, y_pixel=np.arange(image.shape[0]), wls=self.params["wls"].get_value())
-            dat.metadata["background"] = self.params["background"].get_value()
+            if original_sub_background:
+                dat.metadata["background"] = self.params["background"].get_value()
+            else:
+                dat.metadata["background"] = []
             dat.metadata["exposure"] = self.params["exposure"].get_value()
-            dat.metadata["grating"] = self.params["grating"].value
+            dat.metadata["grating"] = self.params["grating"].get_value()
+            dat.metadata["centre"] = self.params["centre"].get_value()
+            dat.metadata["FVB mode"] = self.params["FVB mode"].value
             dat.metadata["amp_mode"] = self.params["amp_mode"].value
             dat.metadata["vs_speed"] = self.params["vs_speed"].value
-            dat.metadata["slit_width"] = self.params["slit_width"].get_value()
+            dat.metadata["slit_width"] = self.params["slit_width"].value
             dat.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             dat.save(filename, 2)
+            if original_sub_background:
+                self.params["sub_background"].set_value(True)
             
             # For "filename" textbox not visible
             self.params["filename"].set_value = ""
@@ -573,12 +603,16 @@ class Base(pzp.Piece):
     # Ensure background is taken
     @pzp.piece.ensurer        
     def _ensure_background_exist(self):
-        if not self.puzzle.debug and self.params["background"].get_value() is None:
+        if not self.puzzle.debug and self.params["background"].value is None:
             raise Exception("Background is not taken") 
-        roi = self.params["roi"].get_value()
-        if not self.puzzle.debug and self.params["background"].get_value().shape != (roi[3] - roi[2], roi[1] - roi[0]):
-            raise Exception("Background ROI not match") 
-
+        elif not self.puzzle.debug and not self.params["FVB mode"].value:
+            roi = self.params["roi"].get_value()
+            if self.params["background"].value.shape != (roi[3] - roi[2], roi[1] - roi[0]):
+                raise Exception("Background size not match") 
+        elif not self.puzzle.debug and self.params["FVB mode"].value:
+            if self.params["background"].value.shape[0] != 1:
+                raise Exception("Background size not match") 
+                
     def setup(self):
         import pylablib as pll
         from pylablib.devices import Andor
@@ -614,6 +648,8 @@ class ROI_Popup(pzp.piece.Popup):
             self.parent_piece.params["wls"].get_value()
             image = self.parent_piece.params['image'].get_value()
             self._rows, self._cols = image.shape
+            self._rows += 1
+            self._cols += 1
             self.imgw.setImage(image[:,::-1])
             self.parent_piece.params['roi'].set_value(original_roi)
 
@@ -626,8 +662,8 @@ class ROI_Popup(pzp.piece.Popup):
             x1, x2, y1, y2 = (int(np.round(x)) for x in (x1, x2, y1, y2))
             x1 = x1 if x1>0 else 0
             y1 = y1 if y1>0 else 0
-            x2 = x2 if x2<self._cols-1 else self._cols-1
-            y2 = y2 if y2<self._rows-1 else self._rows-1
+            x2 = x2 if x2<self._cols else self._cols
+            y2 = y2 if y2<self._rows else self._rows
 
             self.parent_piece.params["roi"].set_value([x1, x2, y1, y2])
             self.actions['set_roi_from_camera']()
@@ -682,6 +718,18 @@ class Piece(Base):
 
         # Make it visible again after the textbox span issue solved
         pzp.param.text(self, "filename", "", visible=False)(None)
+        
+        pzp.param.spinbox(self, 'circle_r', 50, visible=False)(None)
+
+    def define_actions(self):
+        super().define_actions()
+
+        @pzp.action.define(self, 'Centre crosshair', QtCore.Qt.Key.Key_C)
+        def centre(self):
+            shape = self.params['image'].value.shape
+            self._inf_line_x.setValue(shape[0]//2)
+            self._inf_line_y.setValue(shape[1]//2)
+
 
     # Within this function we can define any other GUI objects we want to display beyond the 
     # params and actions (which are generated by default)
@@ -689,30 +737,106 @@ class Piece(Base):
         layout = QtWidgets.QVBoxLayout()
 
         # Add a PuzzleTimer for live view
-        delay = 0.05 if not self.puzzle.debug else 0.1 # Introduce artificial delay for debug mode
+        if not self.puzzle.debug:
+            delay = 0.05             # CHECK - Change to smaller value for faster refresh, but stable
+        else:
+            delay = 0.1
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
         layout.addWidget(self.timer)
 
-        # Make an ImageView
-        self.pw = pg.PlotWidget()
-        layout.addWidget(self.pw)
+        # Make the plots
+        self.gl = pg.GraphicsLayoutWidget()
+        layout.addWidget(self.gl)
 
-        plot_item = self.pw.getPlotItem()
-        plot_item.setAspectLocked(True)
-        plot_item.invertY(True)
+        plot_main = self.gl.addPlot(0, 0)
+        plot_fvb = self.gl.addPlot(1, 0)
+
+        def px2wl_mapping():
+            image_min = self.params["roi"].value[0]
+            image_max = self.params["roi"].value[1] + 1
+            wl_min = self.params["wls"].value[0]
+            wl_max = self.params["wls"].value[-1]
+            m = (wl_max - wl_min) / (image_max - image_min)
+            c = wl_min
+            return m ,c
+
+        def sync_plot_fvb(vb):
+            main_xrange = vb.viewRange()[0]  # [min, max] from plot_main
+            m, c = px2wl_mapping()
+            scaled_xrange = [x*m+c for x in main_xrange]  # Scaling
+            plot_fvb.setXRange(*scaled_xrange, padding=0)
+
+        def sync_plot_main(vb):       
+                fvb_xrange = vb.viewRange()[0]  # [min, max] from plot_fvb
+                m, c = px2wl_mapping()
+                x0, x1 = [(x - c) / m for x in fvb_xrange]  # Scaling
+
+                # Compute y-range to maintain aspect ratio
+                vb_main = plot_main.getViewBox()
+                view_rect = vb_main.viewRect()
+                aspect = view_rect.width() / view_rect.height()  # current aspect
+
+                y_center = view_rect.center().y()
+                new_width = x1 - x0
+                new_height = new_width / aspect
+                y0 = y_center - new_height / 2
+                y1 = y_center + new_height / 2
+
+                vb_main.setRange(xRange=(x0, x1), yRange=(y0, y1), padding=0)
+
+        plot_main.setAspectLocked(True)
+        plot_main.invertY(True)
+        # Set default ROI
+        self.params["roi"].set_value([0, 1279, 0, 255])
+        h, w = self.params['roi'].get_value()[[1,3]]
+        plot_main.setXRange(0, w)
+        plot_main.setYRange(0, h)   
 
         # numba makes this slightly faster, uncomment if needed
         # pg.setConfigOption('useNumba', True)
         self.imgw = pg.ImageItem(border='w', axisOrder='row-major', levels=[0, 1024])
         self["autolevel"].set_value(0)
-        plot_item.addItem(self.imgw)
+        plot_main.addItem(self.imgw)
+
+        self._inf_line_x = pg.InfiniteLine(0, 0, movable=True, bounds=[0, np.inf])
+        self._inf_line_y = pg.InfiniteLine(0, 90, movable=True, bounds=[0, np.inf])
+        self._inf_line_fvb = pg.InfiniteLine(0, 90, movable=False)
+        plot_main.addItem(self._inf_line_x)
+        plot_main.addItem(self._inf_line_y)
+        plot_fvb.addItem(self._inf_line_fvb)
+
+        r = self.params['circle_r'].value
+        self._circle = QtWidgets.QGraphicsEllipseItem(-r, -r, r*2, r*2)  # x, y, width, height
+        self._circle.setPen(pg.mkPen((255, 255, 0, 150)))
+        plot_main.addItem(self._circle)
+
+        plot_line_fvb = plot_fvb.plot([0], [0])
+
 
         def update_image():
-            self.imgw.setImage(self.params['image'].value, autoLevels=self["autolevel"].value)
+            image_data = self.params['image'].value
+            self.imgw.setImage(image_data, autoLevels=self["autolevel"].value)
+            r = self.params['circle_r'].value
+
+            roi = self.params["roi"].get_value()
+            self._inf_line_x.setBounds([0, roi[3]-roi[2]])
+            self._inf_line_y.setBounds([0, roi[1]-roi[0]])
+
+            self._circle.setRect(self._inf_line_y.value()-r,
+                                self._inf_line_x.value()-r,
+                                r*2, r*2)
+
+            plot_line_fvb.setData(self.params["wls"].value, image_data.sum(axis=0))
+            m, c = px2wl_mapping()
+            self._inf_line_fvb.setPos([x*m+c for x in self._inf_line_y.getPos()])
+             
         update_later = pzp.threads.CallLater(update_image)
         self.params['image'].changed.connect(update_later)
+        self._inf_line_x.sigPositionChanged.connect(update_later)
+        self._inf_line_y.sigPositionChanged.connect(update_later)
 
-        layout.setStretchFactor(self.pw, 9)
+        plot_main.sigXRangeChanged.connect(sync_plot_fvb)
+        plot_fvb.sigXRangeChanged.connect(sync_plot_main)
 
         return layout
     
@@ -723,18 +847,6 @@ class LineoutPiece(Piece):
     def define_actions(self):
         super().define_actions()
 
-        @pzp.action.define(self, 'Centre lines', QtCore.Qt.Key.Key_C)
-        def centre(self):
-            shape = self.params['image'].value.shape
-            self._inf_line_x.setValue(shape[0]//2)
-            self._inf_line_y.setValue(shape[1]//2)
-
-    def define_params(self):
-        super().define_params()
-
-        pzp.param.spinbox(self, 'circle_r', 50, visible=False)(None)
-
-    
     def custom_layout(self):
         layout = QtWidgets.QVBoxLayout()
 
@@ -840,18 +952,22 @@ class LineoutPiece(Piece):
             self._circle.setRect(self._inf_line_y.value()-r,
                                 self._inf_line_x.value()-r,
                                 r*2, r*2)
-            plot_line_x.setData(image_data[int(self._inf_line_x.value())])
-            i = int(self._inf_line_y.value())
-            plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
-                
+            try:
+                plot_line_x.setData(image_data[int(self._inf_line_x.value())])
+                i = int(self._inf_line_y.value())
+                plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
+            except IndexError:
+                raise Exception("Crosshair out-of-range")
+
             plot_line_fvb.setData(self.params["wls"].value, image_data.sum(axis=0))
             m, c = px2wl_mapping()
             self._inf_line_fvb.setPos([x*m+c for x in self._inf_line_y.getPos()])
              
         update_later = pzp.threads.CallLater(update_image)
         self.params['image'].changed.connect(update_later)
-        self._inf_line_x.sigPositionChanged.connect(update_image)
-        self._inf_line_y.sigPositionChanged.connect(update_image)
+        self._inf_line_x.sigPositionChanged.connect(update_later)
+        self._inf_line_y.sigPositionChanged.connect(update_later)
+
         plot_main.sigXRangeChanged.connect(sync_plot_fvb)
         plot_fvb.sigXRangeChanged.connect(sync_plot_main)
 
@@ -865,7 +981,8 @@ if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
     puzzle = pzp.Puzzle(app, "Lab", debug=False)
-    puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
+    # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
+    puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
 
