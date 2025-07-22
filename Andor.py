@@ -379,7 +379,7 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 if self.timer.input.isChecked():
                     self.call_stop()
-                    time.sleep(0.5)
+                    time.sleep(1)
                 grat_idx = int(value.split(" - ")[0])
                 self.spec.set_grating(grat_idx)
             return value
