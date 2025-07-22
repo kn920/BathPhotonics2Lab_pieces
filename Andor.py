@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image
 import datasets as ds
 import datetime
-# import timeout
 import time
 import threading
 import sys
@@ -126,7 +125,7 @@ class Base(pzp.Piece):
 
                 self.params["input_port"].input.addItems(["side"])
 
-                self.params["slit_width"].set_value(8)
+                self.params["slit_width"].set_value(30)
 
                 self.params["roi"].set_value([0, 1279, 0, 255])
 
@@ -169,8 +168,8 @@ class Base(pzp.Piece):
                 except Exception as e:
                     self.dispose()
                     raise e
-                
-            elif current_value:
+            
+            elif current_value and not value:
                 # Disconnect
                 if self._ensure_connected(capture_exception=True):
                     self.dispose()
@@ -215,7 +214,7 @@ class Base(pzp.Piece):
             return f"\t{status}\t"
 
         # Set exposure time
-        @pzp.param.spinbox(self, "exposure", 10.)
+        @pzp.param.spinbox(self, "exposure", 100.)
         @self._ensure_connected
         def exposure(self, value):
             if self.puzzle.debug:
@@ -331,7 +330,6 @@ class Base(pzp.Piece):
             if image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
             return image
-        
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
@@ -471,7 +469,7 @@ class Base(pzp.Piece):
                 return value
             try:
                 ### Set slit issue - increase slit width no problem, but it take ~1 mins to decrease the slit at the first time?
-                timeout_func(lambda: self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6), timeout=10)
+                timeout_func(lambda: self.spec.set_slit_width("input_side", float(value)*1e-6), timeout=10)
             except Exception as e:
                 raise e
             # self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
@@ -520,7 +518,7 @@ class Base(pzp.Piece):
                     self.puzzle, 'Save file as...', 
                     '.', "Image files (*.png)")
             
-            Image.fromarray((image // 4).astype(np.uint8)).save(filename)
+            Image.fromarray(image.astype(np.int32)).save(filename)
 
         @pzp.action.define(self, "Take background", visible=False)
         def take_background(self):

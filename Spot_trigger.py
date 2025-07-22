@@ -80,8 +80,8 @@ class Piece(pzp.Piece):
             current_value = self.params['FIRE LASER'].value
             if value and not current_value:
                 try:
-                    # Start pulse train
-                    print("fire!!")
+                    # Start infinite pulse train
+                    print("-- Laser Firing")
                     self.params["FIRE LASER"].input.setStyleSheet("background-color: #ff0000")
                     self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=True)
                     self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=False)
@@ -93,22 +93,22 @@ class Piece(pzp.Piece):
                 
             elif current_value:
                 # Stop pulse train
-                print("Stopping!")
+                print("-- Laser stopped")
                 self.kill_laser_output()
                 self.params["FIRE LASER"].input.setStyleSheet("background-color: #f3f3f3")
                 return False
 
+        pzp.param.spinbox(self, "pulses", 1, v_min=1)(None)
 
     def define_actions(self):
-        @pzp.action.define(self, "Trigger pulse")
+        @pzp.action.define(self, "Send pulse train")
         @self._ensure_daq
         @self._ensure_unlocked
         def trigger_pulse(self):
-            print('pulse')
             if not self.puzzle.debug:
                 self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=False, samps=1)
-                self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
-
+                for _ in range(int(self.params["pulses"].value)):
+                    self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
 
     # Ensure devices are connected
     @pzp.piece.ensurer        

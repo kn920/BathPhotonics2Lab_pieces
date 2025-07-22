@@ -50,12 +50,11 @@ class Piece(pzp.Piece):
                     self.dispose()
                     raise e
                 
-            elif current_value:
+            elif current_value and not value:
                 # Disconnect
                 self.dispose()
                 return 0
 
-        ### Need to decode - list()?
         # Readout status
         @pzp.param.readout(self, "status")
         @self._ensure_connected
@@ -76,8 +75,11 @@ class Piece(pzp.Piece):
             if not self.puzzle.debug:
                 value = self.SerialObj.readline().decode('utf-8', errors='ignore')
                 # print(repr(value))
+                if value == "ready":
+                    self.params["status"].input.setStyleSheet("background-color: #f3f3f3")
                 if value == "....":
                     value = "RAMPING"
+                    self.params["status"].input.setStyleSheet("background-color: #fffba0")
                 if value == "\r\x11\x13*\r\n" or value == "\x11" or value == "\x13":
                     return self.params["status"].value
                 elif "\x13" in value:
@@ -86,7 +88,6 @@ class Piece(pzp.Piece):
                     return value
                 return self.params["status"].value
 
-        ### write to the COM need "\n" or "\r"?
         @pzp.action.define(self, 'power up')
         @self._ensure_connected
         def power_up(self):
@@ -127,7 +128,7 @@ class Piece(pzp.Piece):
     def custom_layout(self):
         layout = QtWidgets.QGridLayout()
         # Add a PuzzleTimer for live view
-        delay = 1.5          # CHECK - Change to smaller value for faster refresh, but stable
+        delay = 1          # CHECK - Change to smaller value for faster refresh, but stable
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle,  self.params["status"].get_value, delay)
         layout.addWidget(self.timer)
         return layout
