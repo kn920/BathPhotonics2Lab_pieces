@@ -221,7 +221,7 @@ class Base(pzp.Piece):
                 return value
             if self.timer.input.isChecked():
                 self.call_stop()
-                time.sleep(0.5)
+                time.sleep(1)
             self.cam.set_exposure(value*1e-3)
 
         @exposure.set_getter(self)
@@ -498,8 +498,6 @@ class Base(pzp.Piece):
         def reset_roi(self):
             if not self.puzzle.debug:
                 roi_limits = self.cam.get_roi_limits()
-                # Issue here
-                print('Triggered', roi_limits)
                 self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
                 # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
