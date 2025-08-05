@@ -10,7 +10,11 @@ This module contains the pieces for buliding the experiments notebook with GUI. 
 
 Git pull this ......
 
-
+### Note to datasets
 git clone https://github.com/jdranczewski/dataset-suite.git in document, and rename the folder to "datasets", and add .pth file in venv\Lib\site-packages
 
-Usage: from datasets import datasets as ds
+Usage: import datasets as ds
+
+### Issues to be fixed
+* Randomly happens a +- 1 count offset per pixels (Dark count?), independent to integration time, vs_speed and amp_mode settings
+* Fire laser only when CCD integrating & threading

@@ -22,7 +22,7 @@ class Piece(pzp.Piece):
         pzp.param.progress(self, "progress")(None)
 
 
-    def _take_ll(self, image_param, sub_bg_param, pulse_train_param, wl):
+    def _take_ll(self, param_image, param_subBG, action_takeBG, param_BG, pulse_train_param, wl):
         positions = np.linspace(self["start"].value, self["end"].value, self["N"].value)
         vary = pzp.parse.parse_params(self["vary"].value, self.puzzle)[0]
 
@@ -32,10 +32,11 @@ class Piece(pzp.Piece):
         vary.set_value(positions[0])
 
         # Get background
-        background = image_param.get_value()
+        action_takeBG()
+        background = param_BG.value
         self.puzzle.process_events()
         
-        sub_bg_param.set_value(False)
+        param_subBG.set_value(False)
         # Make empty arrays for the values
         spectra = np.zeros((len(positions), *background.shape), np.int32)
         powers = np.zeros(len(positions))
@@ -51,7 +52,7 @@ class Piece(pzp.Piece):
                 raise Exception("Scan range over the limits")
             vary.set_value(pos)
 
-            spectra[i] = image_param.get_value()
+            spectra[i] = param_image.get_value()
             # powers[i] = self.puzzle['powermeter']['power'].get_value()
             if self.stop:
                 pulse_train_param.set_value(0)
@@ -67,14 +68,12 @@ class Piece(pzp.Piece):
         # Make a dataset for the data
         ll = ds.dataset(spectra, aom_voltage=np.asarray(positions), pixel=np.arange(spectra.shape[1]), wl=wl)
         ll.metadata['background'] = background
-        # ll.metadata['positions'] = np.asarray(positions)
-        # self.puzzle.record_values("powermeter:wavelength, powermeter:avg_time", ll.metadata)
         self.result = ll
         
         self.update_plot(ll)
         self.elevate()
         
-        sub_bg_param.set_value(True)
+        param_subBG.set_value(True)
 
         return ll
 
@@ -84,12 +83,15 @@ class Piece(pzp.Piece):
             ll = self._take_ll(
                 self.puzzle["Andor"]["image"],
                 self.puzzle["Andor"]["sub_background"],
+                self.puzzle["Andor"].actions["Take background"],
+                self.puzzle["Andor"]["background"],
                 self.puzzle["Spot trigger"]["FIRE LASER"],
                 self.puzzle["Andor"]["wls"].value
             )
+            self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, " \
+                                        "Andor:amp_mode, Andor:vs_speed, Andor:slit_width", 
+                                        ll.metadata)
             ll.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-            self.puzzle.record_values("Andor:exposure, Andor:grating, Andor:amp_mode, Andor:vs_speed, Andor:slit_width", 
-                                      ll.metadata)
             ll.save(pzp.parse.format(self["filename"].value, self.puzzle), 2)
         
     def custom_layout(self):
