@@ -7,7 +7,7 @@ from PIL import Image
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
-        self.add_child_params(("unlimited", "armed", "black", "frame_buffer", "counts", "max_counts", "sub_background"))
+        self.add_child_params(("black", "frame_buffer", "counts", "max_counts", "sub_background"))
         return super().define_params()
     
     def define_actions(self):
@@ -27,7 +27,8 @@ class Base(pzp.Piece):
         def get_serials(self):
             if self.puzzle.debug:
                 return None
-            return self.puzzle.globals['tlc_sdk'].discover_available_cameras()
+            cam_list = self.imports.list_cameras()
+            return [i.name for i in cam_list]
 
         # Make a checkbox for connecting to the camera. Clicking the checkbox will call
         # the function below - if checked, the function gets value=1, otherwise 0
@@ -42,15 +43,13 @@ class Base(pzp.Piece):
             if value and not current_value:
                 # Connect to the camera
                 try:
-                    # See the Thorlabs camera SDK for the details of the functions that are called here
-                    # Also see the setup() method below to see where self._TLCameraSDK came from.
-                    self.camera = self.puzzle.globals['tlc_sdk'].open_camera(self.params['serial'].get_value())
-                    self.camera.image_poll_timeout_ms = 1000
-                    if self["unlimited"].value is not None:
-                        self.camera.frames_per_trigger_zero_for_unlimited = not self["unlimited"].value
-                    else:
-                        self.camera.frames_per_trigger_zero_for_unlimited = 1
-                    return 1
+                    self.camera = self.imports.BaslerPylonCamera(name=self['serial'].value)
+                    print(self.camera.get_attribute_value("TestImageSelector"))
+                    # if self["unlimited"].value is not None:
+                    #     self.camera.frames_per_trigger_zero_for_unlimited = not self["unlimited"].value
+                    # else:
+                    #     self.camera.frames_per_trigger_zero_for_unlimited = 1
+                    # return 1
                 except Exception as e:
                     self.dispose()
                     raise e
@@ -59,43 +58,14 @@ class Base(pzp.Piece):
                 self.dispose()
                 return 0
             
-        @pzp.param.checkbox(self, "unlimited", 0, visible=False)
-        @self._ensure_disarmed
-        @self._ensure_connected
-        def unlimited(self, value):
-            if self.puzzle.debug:
-                return value
-
-            self.camera.frames_per_trigger_zero_for_unlimited = not value
-            
-        # Make a checkbox for arming the camera
-        self._triggered = 0
-        @pzp.param.checkbox(self, "armed", 0, visible=False)
-        @self._ensure_connected
-        def armed(self, value):
-            if self.puzzle.debug:
-                return 1
-            current_value = self.params['armed'].value
-            
-            if value and not current_value:
-                # Arm and trigger the camera
-                self.camera.arm(self["frame_buffer"].value)
-                self._triggered = 0
-                return 1
-            elif not value and current_value:
-                self.camera.disarm()
-                self._triggered = 0
-                return 0
-            return current_value
-            
         # The exposure value can be set - that's what this function does
-        @pzp.param.spinbox(self, "exposure", 25.)
+        @pzp.param.spinbox(self, "exposure", 20.)
         @self._ensure_connected
         def exposure(self, value):
             if self.puzzle.debug:
                 return value
             # If we're connected and not in debug mode, set the exposure
-            self.camera.exposure_time_us = int(value*1000)
+            self.camera.set_exposure(value / 1000)
 
         # The exposure can also be read from the camera (it stores is internally),
         # so here we register a 'getter' for the exposure param - a function
@@ -106,14 +76,14 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['exposure'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.exposure_time_us / 1000
+            return self.camera.get_exposure() * 1000
 
-        @pzp.param.spinbox(self, "gain", 0)
+        @pzp.param.spinbox(self, "gain", 0, v_min=0, v_max=48)
         @self._ensure_connected
         def gain(self, value):
             if self.puzzle.debug:
                 return value
-            self.camera.gain = value
+            self.camera.set_attribute_value('Gain', value)
 
         @gain.set_getter(self)
         @self._ensure_connected
@@ -121,14 +91,14 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['gain'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.gain
+            return self.camera.get_attribute_value("Gain")
         
         @pzp.param.spinbox(self, "black", 0, visible=False)
         @self._ensure_connected
         def black(self, value):
             if self.puzzle.debug:
                 return value
-            self.camera.black_level = value
+            self.camera.set_attribute_value('BlackLevel', value)
 
         @black.set_getter(self)
         @self._ensure_connected
@@ -136,39 +106,46 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['black'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.black_level
+            return self.camera.get_attribute_value("BlackLevel")
         
+        # Setup ROI
         @pzp.param.array(self, 'roi', False)
-        @self._ensure_connected
         def roi(self):
-            if not self.puzzle.debug:
-                return self.camera.roi
-            return [0, 0, 99, 79]
+            return None
             
+        @roi.set_getter(self)
+        def roi(self):
+            if not self.puzzle.debug and self.params["connected"].value:
+                return self.camera.get_roi()
+            return self.params['roi'].value
+
         @roi.set_setter(self)
-        @self._ensure_connected
-        @self._ensure_disarmed
         def roi(self, value):
-            if not self.puzzle.debug:
-                self.camera.roi = value
+            if not self.puzzle.debug and self.params["connected"].value:
+                # if self.timer.input.isChecked():
+                #     self.call_stop()
+                #     time.sleep(0.5)
+                roi_for_camInput = [ int(v) for v in value]
+                self.camera.set_roi(*roi_for_camInput)
+            self.params["sub_background"].set_value(False)
+            return value
+
         
+        # Image getter
         @pzp.param.array(self, 'image')
         @self._ensure_connected
-        @self._ensure_armed
         def get_image(self):
             if self.puzzle.debug:
                 # If we're in debug mode, we just return random noise
-                image = np.random.random((1080, 1440))*1024
+                dummy_imgsize = self.params["roi"].get_value()
+                image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
-                if not self["unlimited"].value or not self._triggered:
-                    self.actions["Trigger"]()
-                frame = self.camera.get_pending_frame_or_null()
-                if frame is None:
+                # cam.snap handled all the acquisition start, wait, and stop 
+                image = self.camera.snap()
+                if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
-                # Copy the image we got and save a reference internally
-                image = frame.image_buffer[:,::-1].copy()
             if self.params['sub_background'].get_value():
-                image -= self.params['background'].get_value()
+                image = image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
             return image
             
         @pzp.param.readout(self, 'counts', False)
@@ -249,19 +226,17 @@ class Base(pzp.Piece):
             self.params['armed'].set_value(0)
 
     def setup(self):
-        # This function is called if not in debug mode to setup the hardware connection API
-        if not self.puzzle.globals.require('tlc_sdk'):
-            # If the SDK has not been set up yet, we set it up here
-            dll_directory = r"C:\Program Files\Thorlabs\Scientific Imaging\Scientific Camera Support\Scientific Camera Interfaces\SDK\Native Toolkit\dlls\Native_64_lib"
-            os.environ["PATH"] = dll_directory + os.pathsep + os.environ["PATH"]
-            os.add_dll_directory(dll_directory)
-            from thorlabs_tsi_sdk.tl_camera import TLCameraSDK
-            self.puzzle.globals['tlc_sdk'] = TLCameraSDK()
+        # Setup number of emulation camera to 1
+        os.environ["PYLON_CAMEMU"] = "1"
+        import pylablib as pll
+        pll.par["devices/dlls/basler_pylon"] = "C:/Program Files/Basler/pylon 7/Runtime/x64/PylonC_v7_4.dll"
+        from pylablib.devices import Basler
+        self.imports = Basler
 
     def dispose(self):
         # This function 'disposes' of the camera, effectively disconnecting us
         if hasattr(self, 'camera'):
-            self.camera.dispose()
+            self.camera.close()
             del self.camera
 
     def handle_close(self, event):
@@ -270,10 +245,6 @@ class Base(pzp.Piece):
         if not self.puzzle.debug:
             # Disconnect from the camera
             self.dispose()
-        if not self.puzzle.debug and self.puzzle.globals.release('tlc_sdk'):
-            # If we are the last Piece using the SDK, we shut the SDK down
-            self.puzzle.globals['tlc_sdk'].dispose()
-            del self.puzzle.globals['tlc_sdk']
 
 
 class ROI_Popup(pzp.piece.Popup):
@@ -481,9 +452,7 @@ if __name__ == "__main__":
     from puzzlepiece.pieces import plotter
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Camera", debug=True)
+    puzzle = pzp.Puzzle(app, "Camera", debug=False)
     puzzle.add_piece("camera", LineoutPiece(puzzle), 0, 0)
-    puzzle.add_piece("plotter", plotter := plotter.Piece(puzzle), 0, 1)
-    plotter.params['param'].set_value("camera:counts")
     puzzle.show()
     app.exec()
