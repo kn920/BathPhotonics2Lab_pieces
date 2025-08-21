@@ -3,15 +3,16 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore
 import numpy as np
 import os, sys
+import time
 from PIL import Image
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
-        self.add_child_params(("black", "frame_buffer", "counts", "max_counts", "sub_background"))
+        self.add_child_params(("armed", "Time Base", "black", "counts", "max_counts", "sub_background"))
         return super().define_params()
     
     def define_actions(self):
-        self.add_child_actions(("Take background", "ROI", "Rediscover", "Trigger"))
+        self.add_child_actions(("Take background", "ROI", "Rediscover"))
         return super().define_actions()
 
 class Base(pzp.Piece):
@@ -27,8 +28,8 @@ class Base(pzp.Piece):
         def get_serials(self):
             if self.puzzle.debug:
                 return None
-            cam_list = self.imports.list_cameras()
-            return [i.name for i in cam_list]
+            self.cam_list = self.tlf.EnumerateDevices()
+            return [i.GetModelName() for i in self.cam_list]
 
         # Make a checkbox for connecting to the camera. Clicking the checkbox will call
         # the function below - if checked, the function gets value=1, otherwise 0
@@ -43,13 +44,20 @@ class Base(pzp.Piece):
             if value and not current_value:
                 # Connect to the camera
                 try:
-                    self.camera = self.imports.BaslerPylonCamera(name=self['serial'].value)
-                    print(self.camera.get_attribute_value("TestImageSelector"))
-                    # if self["unlimited"].value is not None:
-                    #     self.camera.frames_per_trigger_zero_for_unlimited = not self["unlimited"].value
-                    # else:
-                    #     self.camera.frames_per_trigger_zero_for_unlimited = 1
-                    # return 1
+                    cam_index = [i.GetModelName() for i in self.cam_list].index(self['serial'].value)
+                    self.camera = self.imports.InstantCamera(self.tlf.CreateDevice(self.cam_list[cam_index]))
+                    self.camera.Open()
+                    self.camera.GevSCPSPacketSize.Value = 1500
+                    self.camera.AcquisitionMode.Value = "Continuous"
+                    
+                    if self.camera.DeviceModelName.Value != "CamEmu":
+                        self.camera.TriggerSelector.Value = "AcquisitionStart"
+                        self.camera.TriggerMode.Value = "Off"
+
+                    self.camera.TriggerSelector.Value = "FrameStart"
+                    self.camera.TriggerMode.Value = "On"
+                    self.camera.TriggerSource.Value = "Software"
+                    self.camera.AcquisitionFrameRateEnable.Value = False
                 except Exception as e:
                     self.dispose()
                     raise e
@@ -58,6 +66,47 @@ class Base(pzp.Piece):
                 self.dispose()
                 return 0
             
+
+        # Make a checkbox for arming the camera
+        @pzp.param.checkbox(self, "armed", 0, visible=False)
+        @self._ensure_connected
+        def armed(self, value):
+            if self.puzzle.debug:
+                return 1
+            current_value = self.params['armed'].value
+            
+            if value and not current_value:
+                # Start grabbing frame, wait for trigger signal
+                self.camera.StartGrabbing(self.imports.GrabStrategy_LatestImageOnly)
+                return 1
+            elif not value and current_value:
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
+                self.camera.StopGrabbing()
+                return 0
+            return current_value
+        
+        # The ExposureTimeBase value
+        @pzp.param.spinbox(self, "Time Base", 20., visible=False)
+        @self._ensure_connected
+        def exposure_tbase(self, value):
+            if self.puzzle.debug:
+                return value
+            # If we're connected and not in debug mode, set the ExposureTimeBase value  
+            # and refresh the exposure time
+            self.camera.ExposureTimeBaseAbs.Value = value
+            self["exposure"].get_value()
+            
+
+        @exposure_tbase.set_getter(self)
+        @self._ensure_connected
+        def exposure_tbase(self):
+            if self.puzzle.debug:
+                return self.params['Time Base'].value
+            # If we're connected and not in debug mode, return the exposure from the camera
+            return self.camera.ExposureTimeBaseAbs.Value
+        
         # The exposure value can be set - that's what this function does
         @pzp.param.spinbox(self, "exposure", 20.)
         @self._ensure_connected
@@ -65,8 +114,14 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return value
             # If we're connected and not in debug mode, set the exposure
-            self.camera.set_exposure(value / 1000)
-
+            try:
+                self.camera.ExposureTimeAbs.Value = value * 1000
+            except Exception as e:
+                if 'OutOfRangeException' in str(e):
+                    tabs_max = self.camera.ExposureTimeAbs.GetMax()
+                    raise Exception(f'Exposure time out of range [0 - {tabs_max/1000:.1f}] ms. Try increasing the exposure time base in Settings')
+                else:
+                    raise e
         # The exposure can also be read from the camera (it stores is internally),
         # so here we register a 'getter' for the exposure param - a function
         # called to see what the current exposure value is.
@@ -76,14 +131,14 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['exposure'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.get_exposure() * 1000
+            return self.camera.ExposureTimeAbs.Value / 1000
 
-        @pzp.param.spinbox(self, "gain", 0, v_min=0, v_max=48)
+        @pzp.param.spinbox(self, "gain", 0, v_min=0, v_max=500)
         @self._ensure_connected
         def gain(self, value):
             if self.puzzle.debug:
                 return value
-            self.camera.set_attribute_value('Gain', value)
+            self.camera.GainRaw.Value = value
 
         @gain.set_getter(self)
         @self._ensure_connected
@@ -91,14 +146,15 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['gain'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.get_attribute_value("Gain")
+            return self.camera.GainRaw.Value
         
-        @pzp.param.spinbox(self, "black", 0, visible=False)
+        # Black level not fixed
+        @pzp.param.spinbox(self, "black", 0, v_min=0, v_max=600, visible=False)
         @self._ensure_connected
         def black(self, value):
             if self.puzzle.debug:
                 return value
-            self.camera.set_attribute_value('BlackLevel', value)
+            self.camera.BlackLevelRaw.Value = value
 
         @black.set_getter(self)
         @self._ensure_connected
@@ -106,7 +162,7 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return self.params['black'].value
             # If we're connected and not in debug mode, return the exposure from the camera
-            return self.camera.get_attribute_value("BlackLevel")
+            return self.camera.BlackLevelRaw.Value
         
         # Setup ROI
         @pzp.param.array(self, 'roi', False)
@@ -116,17 +172,34 @@ class Base(pzp.Piece):
         @roi.set_getter(self)
         def roi(self):
             if not self.puzzle.debug and self.params["connected"].value:
-                return self.camera.get_roi()
+                WHXY = [self.camera.Width.Value,
+                        self.camera.Height.Value,
+                        self.camera.OffsetX.Value,
+                        self.camera.OffsetY.Value]
+                return self.WHXY2roi(WHXY)
             return self.params['roi'].value
 
         @roi.set_setter(self)
         def roi(self, value):
             if not self.puzzle.debug and self.params["connected"].value:
-                # if self.timer.input.isChecked():
-                #     self.call_stop()
-                #     time.sleep(0.5)
-                roi_for_camInput = [ int(v) for v in value]
-                self.camera.set_roi(*roi_for_camInput)
+                if self.timer.input.isChecked():
+                    self.call_stop()
+                    time.sleep(0.5)
+
+                WHXY = self.roi2WHXY(value)
+                print(WHXY)
+                try:
+                    self.camera.OffsetX.Value = WHXY[2]
+                    self.camera.Width.Value = WHXY[0]
+                except:
+                    self.camera.Width.Value = WHXY[0]
+                    self.camera.OffsetX.Value = WHXY[2]
+                try:
+                    self.camera.OffsetY.Value = WHXY[3]
+                    self.camera.Height.Value = WHXY[1]
+                except:
+                    self.camera.Height.Value = WHXY[1]
+                    self.camera.OffsetY.Value = WHXY[3]
             self.params["sub_background"].set_value(False)
             return value
 
@@ -134,14 +207,17 @@ class Base(pzp.Piece):
         # Image getter
         @pzp.param.array(self, 'image')
         @self._ensure_connected
+        @self._ensure_armed
         def get_image(self):
             if self.puzzle.debug:
                 # If we're in debug mode, we just return random noise
                 dummy_imgsize = self.params["roi"].get_value()
                 image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
-                # cam.snap handled all the acquisition start, wait, and stop 
-                image = self.camera.snap()
+                # Send software trigger, then retrieve the frame within timeout
+                self.camera.ExecuteSoftwareTrigger()
+                res = self.camera.RetrieveResult(9999, self.imports.TimeoutHandling_ThrowException)
+                image = res.Array
                 if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
@@ -160,7 +236,6 @@ class Base(pzp.Piece):
         
         pzp.param.checkbox(self, 'sub_background', 0, visible=False)(None)
         pzp.param.array(self, 'background', False)(None)
-        pzp.param.spinbox(self, "frame_buffer", 2, visible=False)(None)
 
     def define_actions(self):
         @pzp.action.define(self, 'Take background', visible=False)
@@ -175,10 +250,10 @@ class Base(pzp.Piece):
 
         @pzp.action.define(self, "Reset ROI", visible=False)
         @self._ensure_connected
-        @self._ensure_disarmed
+        # @self._ensure_disarmed
         def reset_roi(self):
             if not self.puzzle.debug:
-                self.params['roi'].set_value([0, 0, self.camera.roi_range[-2], self.camera.roi_range[-1]])
+                self.params['roi'].set_value([0, 0, self.camera.WidthMax.Value, self.camera.HeightMax.Value])
 
         @pzp.action.define(self, 'Save image')
         def save_image(self, filename=None):
@@ -196,15 +271,10 @@ class Base(pzp.Piece):
         @pzp.action.define(self, "Rediscover", visible=False)
         def rediscover(self):
             if not self.puzzle.debug:
+                self.cam_list = self.tlf.EnumerateDevices()
+                self.params["serial"].input.clear()
                 self.params["serial"].input.addItems(
-                    self.puzzle.globals['tlc_sdk'].discover_available_cameras()
-                )
-
-        @pzp.action.define(self, "Trigger", visible=False)
-        def trigger(self):
-            self._triggered = True
-            if not self.puzzle.debug:
-                self.camera.issue_software_trigger()
+                    [i.GetModelName() for i in self.cam_list])
 
         @pzp.action.define(self, "Settings")
         def settings(self):
@@ -228,15 +298,17 @@ class Base(pzp.Piece):
     def setup(self):
         # Setup number of emulation camera to 1
         os.environ["PYLON_CAMEMU"] = "1"
-        import pylablib as pll
-        pll.par["devices/dlls/basler_pylon"] = "C:/Program Files/Basler/pylon 7/Runtime/x64/PylonC_v7_4.dll"
-        from pylablib.devices import Basler
-        self.imports = Basler
+        from pypylon import pylon
+        self.imports = pylon
+        self.tlf = self.imports.TlFactory.GetInstance()
 
     def dispose(self):
         # This function 'disposes' of the camera, effectively disconnecting us
         if hasattr(self, 'camera'):
-            self.camera.close()
+            self.params['armed'].set_value(0)
+            self.camera.TriggerSelector.Value = "FrameStart"
+            self.camera.TriggerMode.Value = "Off"
+            self.camera.Close()
             del self.camera
 
     def handle_close(self, event):
@@ -246,14 +318,23 @@ class Base(pzp.Piece):
             # Disconnect from the camera
             self.dispose()
 
-
+    def roi2WHXY(self, roi):
+        width = roi[2] - roi[0]
+        height = roi[3] - roi[1]
+        xoffset = roi[0]
+        yoffset = roi[1]
+        return [int(width), int(height), int(xoffset), int(yoffset)]
+            
+    def WHXY2roi(self, WHXY):
+        return [int(WHXY[2]), int(WHXY[3]), int(WHXY[2]+WHXY[0]), int(WHXY[3]+WHXY[1])]
+    
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):
         @pzp.action.define(self, "set_roi_from_camera", visible=False)
         def set_roi_from_camera(self):
             camera_roi = self.parent_piece.params['roi'].get_value()
             self.roi_item.setPos(camera_roi[:2])
-            self.roi_item.setSize([camera_roi[2]-camera_roi[0]+1, camera_roi[3]-camera_roi[1]+1])
+            self.roi_item.setSize([camera_roi[2]-camera_roi[0], camera_roi[3]-camera_roi[1]])
 
         @pzp.action.define(self, "Capture ref")
         def capture_reference(self):
@@ -264,7 +345,7 @@ class ROI_Popup(pzp.piece.Popup):
             self.parent_piece.params['armed'].set_value(1)
             image = self.parent_piece.params['image'].get_value()
             self._rows, self._cols = image.shape
-            self.imgw.setImage(image[:,::-1])
+            self.imgw.setImage(image[:,::])
             if not self.puzzle.debug:
                 self.parent_piece.params['armed'].set_value(0)
                 self.parent_piece.params['roi'].set_value(original_roi)
@@ -273,13 +354,13 @@ class ROI_Popup(pzp.piece.Popup):
         def set_roi(self):
             x1, y1 = self.roi_item.pos()
             x2, y2 = self.roi_item.size()
-            x2 += x1 - 1
-            y2 += y1 - 1
+            x2 += x1
+            y2 += y1
             x1, x2, y1, y2 = (int(np.round(x)) for x in (x1, x2, y1, y2))
             x1 = x1 if x1>0 else 0
             y1 = y1 if y1>0 else 0
-            x2 = x2 if x2<self._cols-1 else self._cols-1
-            y2 = y2 if y2<self._rows-1 else self._rows-1
+            x2 = x2 if x2<self._cols else self._cols
+            y2 = y2 if y2<self._rows else self._rows
             self.parent_piece.params['armed'].set_value(0)
             self.parent_piece.params['roi'].set_value((x1, y1, x2, y2))
             self.actions['set_roi_from_camera']()
@@ -291,8 +372,10 @@ class ROI_Popup(pzp.piece.Popup):
 
         @pzp.action.define(self, "Reset")
         def reset_roi(self):
-            self.roi_item.setPos((0, 0))
-            self.roi_item.setSize((self._cols, self._rows))
+            # self.roi_item.setPos((0, 0))
+            # self.roi_item.setSize((self._cols, self._rows))
+            self.roi_item.setPos((4, 4))
+            self.roi_item.setSize((640, 480))
 
     def custom_layout(self):
         layout = QtWidgets.QVBoxLayout()
@@ -383,7 +466,7 @@ class LineoutPiece(Piece):
     def define_params(self):
         super().define_params()
 
-        pzp.param.spinbox(self, 'circle_r', 200, visible=False)(None)
+        pzp.param.spinbox(self, 'circle_r', 100, visible=False)(None)
     
     def custom_layout(self):
         layout = QtWidgets.QVBoxLayout()
@@ -430,13 +513,21 @@ class LineoutPiece(Piece):
         def update_image():
             image_data = self.params['image'].value
             self.imgw.setImage(image_data, autoLevels=self["autolevel"].value)
-            r = self.params['circle_r'].value
+            r = self.params['circle_r'].value            
+            roi = self.params["roi"].get_value()
+            self._inf_line_x.setBounds([0, roi[3]-roi[1]-1])
+            self._inf_line_y.setBounds([0, roi[2]-roi[0]-1])
+
             self._circle.setRect(self._inf_line_y.value()-r,
-                                 self._inf_line_x.value()-r,
-                                 r*2, r*2)
-            plot_line_x.setData(image_data[int(self._inf_line_x.value())])
-            i = int(self._inf_line_y.value())
-            plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
+                                self._inf_line_x.value()-r,
+                                r*2, r*2)
+            try:
+                plot_line_x.setData(image_data[int(self._inf_line_x.value())])
+                i = int(self._inf_line_y.value())
+                plot_line_y.setData(image_data[:, i], range(len(image_data[:, i])))
+            except IndexError:
+                raise Exception("Crosshair out-of-range")
+            
         update_later = pzp.threads.CallLater(update_image)
         self.params['image'].changed.connect(update_later)
         self._inf_line_x.sigPositionChanged.connect(update_image)
