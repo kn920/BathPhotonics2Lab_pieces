@@ -58,6 +58,8 @@ class Base(pzp.Piece):
                     self.camera.TriggerMode.Value = "On"
                     self.camera.TriggerSource.Value = "Software"
                     self.camera.AcquisitionFrameRateEnable.Value = False
+                    
+                    self.imports.FeaturePersistence.Save(self.nodeFile, self.camera.GetNodeMap())
                 except Exception as e:
                     self.dispose()
                     raise e
@@ -240,6 +242,7 @@ class Base(pzp.Piece):
     def define_actions(self):
         @pzp.action.define(self, 'Take background', visible=False)
         def take_background(self):
+            self.params['sub_background'].set_value(False)
             background = self.params['image'].get_value()
             self.params['background'].set_value(background)
 
@@ -298,6 +301,7 @@ class Base(pzp.Piece):
     def setup(self):
         # Setup number of emulation camera to 1
         os.environ["PYLON_CAMEMU"] = "1"
+        self.nodeFile = "C:\lab_automation\BathPhotonics2Lab_pieces\hardware\pylonLastUseSetting.pfs"
         from pypylon import pylon
         self.imports = pylon
         self.tlf = self.imports.TlFactory.GetInstance()
@@ -306,6 +310,7 @@ class Base(pzp.Piece):
         # This function 'disposes' of the camera, effectively disconnecting us
         if hasattr(self, 'camera'):
             self.params['armed'].set_value(0)
+            self.imports.FeaturePersistence.Load(self.nodeFile, self.camera.GetNodeMap(), True)
             self.camera.TriggerSelector.Value = "FrameStart"
             self.camera.TriggerMode.Value = "Off"
             self.camera.Close()
@@ -478,8 +483,8 @@ class LineoutPiece(Piece):
         # Make the plots
         self.gl = pg.GraphicsLayoutWidget()
         layout.addWidget(self.gl)
-        self.gl.ci.layout.setRowStretchFactor(0, 2)
-        self.gl.ci.layout.setColumnStretchFactor(0, 2)
+        self.gl.ci.layout.setRowStretchFactor(0, 5)
+        self.gl.ci.layout.setColumnStretchFactor(0, 5)
 
         plot_main = self.gl.addPlot(0, 0)
         plot_x = self.gl.addPlot(1, 0)
