@@ -59,7 +59,7 @@ class Settings(pzp.piece.Popup):
                     amp_mode_fun = self.parent_piece.params["amp_mode_list_getter"].value
                     self["amp_mode"].input.addItems([f"{x.hsspeed:1d}: {x.hsspeed_MHz:.2f}MHz, {x.preamp:1d}: {x.preamp_gain:.1f}" for x in amp_mode_fun])
                     self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].value])
-                    self.params["input_port"].input.addItems(["side"])
+                    self.params["input_port"].input.addItems(["direct", "side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
                     self["amp_mode"].input.addItems([str(x) for x in A])
@@ -123,7 +123,7 @@ class Base(pzp.Piece):
                 for i in B1:
                         self["grating"].input.addItem(f"{i:02d} - {B2[i-1]}")
 
-                self.params["input_port"].input.addItems(["side"])
+                self.params["input_port"].input.addItems(["direct", "side"])
 
                 self.params["slit_width"].set_value(30)
 
@@ -146,7 +146,7 @@ class Base(pzp.Piece):
                         TGratingInfo = self.spec.get_grating_info(i)
                         self["grating"].input.addItem(f"{i:02d} - {int(TGratingInfo.lines)} lpmm, {TGratingInfo.blaze_wavelength}")
 
-                    self.params["input_port"].input.addItems(["side"])
+                    self.params["input_port"].input.addItems(["direct", "side"])
 
                     # Set cooler on
                     self.cam.set_cooler(on=True)
@@ -382,6 +382,7 @@ class Base(pzp.Piece):
                     time.sleep(1)
                 grat_idx = int(value.split(" - ")[0])
                 self.spec.set_grating(grat_idx)
+                self.params["wls"].get_value()
             return value
         
         self.params["grating"].input.setMinimumWidth(160)
@@ -397,6 +398,7 @@ class Base(pzp.Piece):
                 self.spec.goto_zero_order()
             else:
                 self.spec.set_wavelength(value*1e-9)
+            self.params["wls"].get_value()
 
         @centre.set_getter(self)
         @self._ensure_connected
@@ -414,10 +416,12 @@ class Base(pzp.Piece):
             roi = self.params["roi"].get_value()
             if not self.puzzle.debug:
                 try:
+                    if self.params["centre"].get_value() == 0:
+                        return np.linspace(0, roi[1]-roi[0], roi[1]-roi[0])
                     self.spec.setup_pixels_from_camera(self.cam)
                     return self.spec.get_calibration()[roi[0]:roi[1]]*1e9
                 except:
-                    return np.linspace(1, 100, roi[1]-roi[0])
+                    return np.linspace(0, 100, roi[1]-roi[0]+1)
             # return np.linspace(roi[0], roi[1], (roi[1]-roi[0]+1))*3
             return np.linspace(300, 700, roi[1]-roi[0]+1)
 
@@ -448,8 +452,7 @@ class Base(pzp.Piece):
         def input_port(self):
             if self.puzzle.debug:
                 return self.params['input_port'].value
-            # return self.spec.get_flipper_port(1)
-            return "side"
+            return "direct"
 
         @input_port.set_setter(self)
         @self._ensure_connected
@@ -469,7 +472,7 @@ class Base(pzp.Piece):
                 return value
             try:
                 ### Set slit issue - increase slit width no problem, but it take ~1 mins to decrease the slit at the first time?
-                timeout_func(lambda: self.spec.set_slit_width("input_side", float(value)*1e-6), timeout=10)
+                timeout_func(lambda: self.spec.set_slit_width("input_direct", float(value)*1e-6), timeout=10)
             except Exception as e:
                 raise e
             # self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
@@ -483,7 +486,7 @@ class Base(pzp.Piece):
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
             # return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
-            return self.spec.get_slit_width("input_side") * 1e6
+            return self.spec.get_slit_width("input_direct") * 1e6
 
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
@@ -615,8 +618,8 @@ class Base(pzp.Piece):
         import pylablib as pll
         from pylablib.devices import Andor
 
-        pll.par["devices/dlls/andor_shamrock"] = "C:/Program Files/Andor SOLIS"
-        pll.par["devices/dlls/andor_sdk2"] = "C:/Program Files/Andor SOLIS"
+        pll.par["devices/dlls/andor_shamrock"] = "C:/Program Files/Andor SDK/Shamrock64"
+        pll.par["devices/dlls/andor_sdk2"] = "C:/Program Files/Andor SOLIS/Newton"
         self.imports = Andor
 
     def dispose(self):
