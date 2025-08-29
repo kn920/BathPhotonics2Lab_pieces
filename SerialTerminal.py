@@ -4,7 +4,7 @@ import serial.tools.list_ports
 import puzzlepiece as pzp
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
-from PyQt5.QtCore import QThread
+from PyQt6.QtCore import QThread
 
 
 # --- Background reader thread ---
@@ -50,53 +50,74 @@ class TerminalWidget(QtWidgets.QPlainTextEdit):
         super().keyPressEvent(event)
 
 
-# --- Settings dialog ---
-class SettingsDialog(QtWidgets.QDialog):
-    def __init__(self, parent, current_settings):
-        super().__init__(parent)
-        self.setWindowTitle("Session Settings")
-        layout = QtWidgets.QFormLayout(self)
+class Settings(pzp.piece.Popup):
+    def define_params(self):
+        super().define_params()
+        self.add_child_params(["Baud", "Data bits", "Parity", "Stop bits", "Line ending", "Local echo"])
+        # Reload dropdown lists when Settings popup opened
+        def relaod_dropdowns():    
+            self["Baud"].input.addItems(["9600", "19200", "38400", "57600", "115200"])
+            self["Data bits"].input.addItems(["5", "6", "7", "8"])
+            self["Parity"].input.addItems(["N", "E", "O", "M", "S"])
+            self["Stop bits"].input.addItems(["1", "1.5", "2"])
+            self["Line ending"].input.addItems(["None", "CR", "LF", "CR+LF"])
 
-        # Baud
-        self.baud = QtWidgets.QComboBox()
-        self.baud.addItems(["9600", "19200", "38400", "57600", "115200"])
-        self.baud.setCurrentText(str(current_settings.get("Baud", 115200)))
-        layout.addRow("Baud:", self.baud)
+            self["Baud"].get_value()
+            self["Data bits"].get_value()
+            self["Parity"].get_value()
+            self["Stop bits"].get_value()
+            self["Line ending"].get_value()
+            self["Local echo"].get_value()
 
-        # Data bits
-        self.databits = QtWidgets.QComboBox()
-        self.databits.addItems(["5", "6", "7", "8"])
-        self.databits.setCurrentText(str(current_settings.get("databits", 8)))
-        layout.addRow("Data bits:", self.databits)
+        relaod_dropdowns()
 
-        # Parity
-        self.parity = QtWidgets.QComboBox()
-        self.parity.addItems(["N", "E", "O", "M", "S"])
-        self.parity.setCurrentText(current_settings.get("parity", "N"))
-        layout.addRow("Parity:", self.parity)
+# # --- Settings dialog ---
+# class SettingsDialog(QtWidgets.QDialog):
+#     def __init__(self, parent, current_settings):
+#         super().__init__(parent)
+#         self.setWindowTitle("Session Settings")
+#         layout = QtWidgets.QFormLayout(self)
 
-        # Stop bits
-        self.stopbits = QtWidgets.QComboBox()
-        self.stopbits.addItems(["1", "1.5", "2"])
-        self.stopbits.setCurrentText(str(current_settings.get("stopbits", 1)))
-        layout.addRow("Stop bits:", self.stopbits)
+#         # Baud
+#         self.baud = QtWidgets.QComboBox()
+#         self.baud.addItems(["9600", "19200", "38400", "57600", "115200"])
+#         self.baud.setCurrentText(str(current_settings.get("Baud", "9600")))
+#         layout.addRow("Baud:", self.baud)
 
-        # Line ending
-        self.lineending = QtWidgets.QComboBox()
-        self.lineending.addItems(["None", "CR", "LF", "CR+LF"])
-        self.lineending.setCurrentIndex(current_settings.get("lineending", 0))
-        layout.addRow("Line ending:", self.lineending)
+#         # Data bits
+#         self.databits = QtWidgets.QComboBox()
+#         self.databits.addItems(["5", "6", "7", "8"])
+#         self.databits.setCurrentText(str(current_settings.get("databits", 8)))
+#         layout.addRow("Data bits:", self.databits)
 
-        # Local echo
-        self.localecho = QtWidgets.QCheckBox("Enable local echo")
-        self.localecho.setChecked(current_settings.get("localecho", False))
-        layout.addRow(self.localecho)
+#         # Parity
+#         self.parity = QtWidgets.QComboBox()
+#         self.parity.addItems(["N", "E", "O", "M", "S"])
+#         self.parity.setCurrentText(current_settings.get("parity", "N"))
+#         layout.addRow("Parity:", self.parity)
 
-        # Buttons
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+#         # Stop bits
+#         self.stopbits = QtWidgets.QComboBox()
+#         self.stopbits.addItems(["1", "1.5", "2"])
+#         self.stopbits.setCurrentText(str(current_settings.get("stopbits", 1)))
+#         layout.addRow("Stop bits:", self.stopbits)
+
+#         # Line ending
+#         self.lineending = QtWidgets.QComboBox()
+#         self.lineending.addItems(["None", "CR", "LF", "CR+LF"])
+#         self.lineending.setCurrentIndex(current_settings.get("lineending", 0))
+#         layout.addRow("Line ending:", self.lineending)
+
+#         # Local echo
+#         self.localecho = QtWidgets.QCheckBox("Enable local echo")
+#         self.localecho.setChecked(current_settings.get("localecho", False))
+#         layout.addRow(self.localecho)
+
+#         # Buttons
+#         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+#         buttons.accepted.connect(self.accept)
+#         buttons.rejected.connect(self.reject)
+#         layout.addRow(buttons)
 
     def get_settings(self):
         return {
@@ -110,7 +131,7 @@ class SettingsDialog(QtWidgets.QDialog):
 
 
 # --- Puzzlepiece Serial Terminal Piece ---
-class SerialTerminalPiece(pzp.Piece):
+class Piece(pzp.Piece):
     def define_params(self):
 
         # List and select device indices
@@ -143,19 +164,67 @@ class SerialTerminalPiece(pzp.Piece):
             elif current_value and not value:
                 self.dispose()
                 return 0
+        
+        @pzp.param.dropdown(self, "Baud", "9600", visible=False)
+        def baud(self):
+            return None
+        
+        @baud.set_setter(self)
+        def baud(self, value):
+            return value
+        
+        @pzp.param.dropdown(self, "Data bits", "8", visible=False)
+        def databits(self):
+            return None
+        
+        @databits.set_setter(self)
+        def databits(self, value):
+            return value
+        
+        @pzp.param.dropdown(self, "Parity", "N", visible=False)
+        def parity(self):
+            return None
+        
+        @parity.set_setter(self)
+        def parity(self, value):
+            return value
+        
+        @pzp.param.dropdown(self, "Stop bits", "1", visible=False)
+        def stopbits(self):
+            return None
+        
+        @stopbits.set_setter(self)
+        def stopbits(self, value):
+            return value
+        
+        @pzp.param.dropdown(self, "Line ending", "None", visible=False)
+        def lineending(self):
+            return None
+        
+        @lineending.set_setter(self)
+        def lineending(self, value):
+            return value
+        
+        pzp.param.checkbox(self, "Local echo", False, visible=False)(None)
+
+    def define_actions(self):
+        @pzp.action.define(self, "Settings")
+        @self._ensure_disconnected
+        def settings(self):
+            self.open_popup(Settings, "More settings")
 
     @pzp.piece.ensurer
     def _ensure_connected(self):
         if not self.puzzle.debug and not hasattr(self, 'ser'):
             raise Exception("Serial not connected")
+        
+    @pzp.piece.ensurer
+    def _ensure_disconnected(self):
+        if not self.puzzle.debug and hasattr(self, 'ser'):
+            raise Exception("Disconnect the Serial first")
 
     def custom_layout(self):
         layout = QtWidgets.QVBoxLayout()
-
-        # More settings
-        self.settings_btn = QtWidgets.QPushButton("More Settings")
-        self.settings_btn.clicked.connect(self.open_settings)
-        layout.addWidget(self.settings_btn)
 
         # Terminal inside a QWidget container
         terminal_container = QtWidgets.QWidget()
@@ -198,15 +267,15 @@ class SerialTerminalPiece(pzp.Piece):
     def _connect_serial(self):
         port = self.params["Serial port"].value
         if port.startswith("loop://"):
-            self.ser = serial.serial_for_url("loop://", baudrate=self.session_settings["baud"], timeout=0)
+            self.ser = serial.serial_for_url("loop://", baudrate=int(self["Baud"].get_value()), timeout=0)
             print('connected!')
         else:
             self.ser = serial.Serial(
                 port,
-                baudrate=self.session_settings["baud"],
-                bytesize=self.session_settings["databits"],
-                parity=self.session_settings["parity"],
-                stopbits=self.session_settings["stopbits"],
+                baudrate=int(self["Baud"].get_value()),
+                bytesize=int(self["Data bits"].get_value()),
+                parity=self["Parity"].get_value(),
+                stopbits=int(self["Stop bits"].get_value()),
                 timeout=0,
             )
         self.reader = SerialReader(self.ser)
@@ -218,12 +287,12 @@ class SerialTerminalPiece(pzp.Piece):
         if hasattr(self, 'ser') and self.ser.is_open:
             # Apply line ending rules
             if char == "\r":
-                lineend = self.session_settings["lineending"]
-                if lineend == 1:  # CR
+                lineend = self["Line ending"].get_value()
+                if lineend == "CR":  # CR
                     data = "\r"
-                elif lineend == 2:  # LF
+                elif lineend == "LF":  # LF
                     data = "\n"
-                elif lineend == 3:  # CR+LF
+                elif lineend == "CR+LF":  # CR+LF
                     data = "\r\n"
                 else:
                     data = ""
@@ -233,13 +302,6 @@ class SerialTerminalPiece(pzp.Piece):
                 self.ser.write(b"\b")
             else:
                 self.ser.write(char.encode())
-
-
-    def open_settings(self):
-        dlg = SettingsDialog(self.puzzle, self.session_settings)
-        if dlg.exec_():
-            self.session_settings = dlg.get_settings()
-            self.terminal.appendPlainText("[Settings updated]\n")
 
     def update_counter(self):
         self.counter += 1
@@ -258,6 +320,6 @@ class SerialTerminalPiece(pzp.Piece):
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     puzzle = pzp.Puzzle(app, "Lab", debug=False)
-    puzzle.add_piece("SerialTerminal", SerialTerminalPiece(puzzle), 0, 0)
+    puzzle.add_piece("SerialTerminal", Piece(puzzle), 0, 0)
     puzzle.show()
     app.exec()
