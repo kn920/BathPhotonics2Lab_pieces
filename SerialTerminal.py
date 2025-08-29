@@ -151,8 +151,8 @@ class Piece(pzp.Piece):
 
         @pzp.param.checkbox(self, "connected", 0)
         def connect(self, value):
-            if self.puzzle.debug:
-                return value
+            # if self.puzzle.debug:
+            #     return value
             current_value = self.params['connected'].value
             if value and not current_value:
                 try:
