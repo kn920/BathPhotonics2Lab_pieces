@@ -5,6 +5,7 @@ import puzzlepiece as pzp
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
 from PyQt6.QtCore import QThread
+import datetime
 
 
 # --- Background reader thread ---
@@ -71,54 +72,6 @@ class Settings(pzp.piece.Popup):
 
         relaod_dropdowns()
 
-# # --- Settings dialog ---
-# class SettingsDialog(QtWidgets.QDialog):
-#     def __init__(self, parent, current_settings):
-#         super().__init__(parent)
-#         self.setWindowTitle("Session Settings")
-#         layout = QtWidgets.QFormLayout(self)
-
-#         # Baud
-#         self.baud = QtWidgets.QComboBox()
-#         self.baud.addItems(["9600", "19200", "38400", "57600", "115200"])
-#         self.baud.setCurrentText(str(current_settings.get("Baud", "9600")))
-#         layout.addRow("Baud:", self.baud)
-
-#         # Data bits
-#         self.databits = QtWidgets.QComboBox()
-#         self.databits.addItems(["5", "6", "7", "8"])
-#         self.databits.setCurrentText(str(current_settings.get("databits", 8)))
-#         layout.addRow("Data bits:", self.databits)
-
-#         # Parity
-#         self.parity = QtWidgets.QComboBox()
-#         self.parity.addItems(["N", "E", "O", "M", "S"])
-#         self.parity.setCurrentText(current_settings.get("parity", "N"))
-#         layout.addRow("Parity:", self.parity)
-
-#         # Stop bits
-#         self.stopbits = QtWidgets.QComboBox()
-#         self.stopbits.addItems(["1", "1.5", "2"])
-#         self.stopbits.setCurrentText(str(current_settings.get("stopbits", 1)))
-#         layout.addRow("Stop bits:", self.stopbits)
-
-#         # Line ending
-#         self.lineending = QtWidgets.QComboBox()
-#         self.lineending.addItems(["None", "CR", "LF", "CR+LF"])
-#         self.lineending.setCurrentIndex(current_settings.get("lineending", 0))
-#         layout.addRow("Line ending:", self.lineending)
-
-#         # Local echo
-#         self.localecho = QtWidgets.QCheckBox("Enable local echo")
-#         self.localecho.setChecked(current_settings.get("localecho", False))
-#         layout.addRow(self.localecho)
-
-#         # Buttons
-#         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-#         buttons.accepted.connect(self.accept)
-#         buttons.rejected.connect(self.reject)
-#         layout.addRow(buttons)
-
     def get_settings(self):
         return {
             "baud": int(self.baud.currentText()),
@@ -142,17 +95,14 @@ class Piece(pzp.Piece):
         @device_idx.set_getter(self)
         def device_idx(self):
             self["Serial port"].input.clear()
-            # if self.puzzle.debug:
-            self["Serial port"].input.addItems(["loop:// (virtual)"])
             for port in serial.tools.list_ports.comports():
                 self["Serial port"].input.addItem(port.device)
+            self["Serial port"].input.addItems(["loop:// (virtual)"])
             return self.params['Serial port'].value
 
 
         @pzp.param.checkbox(self, "connected", 0)
         def connect(self, value):
-            # if self.puzzle.debug:
-            #     return value
             current_value = self.params['connected'].value
             if value and not current_value:
                 try:
@@ -235,15 +185,14 @@ class Piece(pzp.Piece):
         term_layout.addWidget(self.terminal)
         layout.addWidget(terminal_container)
 
-        # Counter label
-        self.counter_label = QtWidgets.QLabel("Counter: 0")
-        layout.addWidget(self.counter_label)
+        # Timestamp label
+        self.timestamp_label = QtWidgets.QLabel(datetime.datetime.now().strftime(f"%d/%m/%Y\t %H:%M:%S"), alignment=QtCore.Qt.AlignRight)
+        layout.addWidget(self.timestamp_label)
 
         # Timer for counter
-        self.counter = 0
-        self.timer = QtCore.QTimer(self)
-        self.timer.timeout.connect(self.update_counter)
-        self.timer.start(1000)
+        self.timestamp = QtCore.QTimer(self)
+        self.timestamp.timeout.connect(self.update_timestamp)
+        self.timestamp.start(200)
 
         # Default settings
         self.session_settings = {
@@ -268,7 +217,6 @@ class Piece(pzp.Piece):
         port = self.params["Serial port"].value
         if port.startswith("loop://"):
             self.ser = serial.serial_for_url("loop://", baudrate=int(self["Baud"].get_value()), timeout=0)
-            print('connected!')
         else:
             self.ser = serial.Serial(
                 port,
@@ -303,9 +251,8 @@ class Piece(pzp.Piece):
             else:
                 self.ser.write(char.encode())
 
-    def update_counter(self):
-        self.counter += 1
-        self.counter_label.setText(f"Counter: {self.counter}")
+    def update_timestamp(self):
+        self.timestamp_label.setText(datetime.datetime.now().strftime(f"%d/%m/%Y\t %H:%M:%S"))
 
     def dispose(self):
         if hasattr(self, "reader"):
@@ -314,7 +261,6 @@ class Piece(pzp.Piece):
         if hasattr(self, "ser"):
             self.ser.close()
             del self.ser
-
 
 # --- Main entry ---
 if __name__ == "__main__":
