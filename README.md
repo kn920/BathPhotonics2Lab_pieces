@@ -79,3 +79,4 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```  
 
 ## Related Projects  
+[**BathPhotonics2Lab_Template**](https://github.com/kn920/BathPhotonics2Lab_template/tree/main) - Experiment notebook template for standard usage.
