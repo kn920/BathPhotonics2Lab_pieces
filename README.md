@@ -23,7 +23,7 @@ This is the (very) detailed installation procedure that I have done. You do not 
 ```
 git clone https://github.com/kn920/BathPhotonics2Lab_pieces.git
 ```
-2. (_Recommended but optional_) Crate virtual envrionment for the automation programs in a folder that all users have access (e.g., `C:/lab_automation/`) with
+2. (_Recommended but optional_) Create virtual envrionment for the automation programs in a folder that all users have access (e.g., `C:/lab_automation/`). To do this, open Windows PowerShell and run
 ```
 python.exe -m venv venv
 ```
@@ -32,9 +32,25 @@ Then activate the environment with
 C:/lab_automation/venv/Scripts/Activate.ps1
 ```
 
-## Installation
+Note: If you have difficulty in running the codes on PowerShell, see [Windows PowerShell restriction] (#windows-powershell-restriction)
+3. Install required python packages using `pip` with `requirement.txt` by
+```
+pip install -r requirement.txt
+```
 
-Git pull this repository to the local drive of your PC.
+
+## Windows PowerShell restriction
+
+If you experience an error with Windows PowerShell when running codes, something like:
+```
+File C:/lab_automation/venv/Scripts/Activate.ps1 cannot be loaded because the execution of scripts is disabled on this system. 
+```
+You can run this code on PowerShell to change the execution policy to allow running script (Do not require administrator permission):
+```
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+
 
 ### Note to datasets
 git clone https://github.com/jdranczewski/dataset-suite.git in document, and rename the folder to "datasets", and add .pth file in venv\Lib\site-packages
