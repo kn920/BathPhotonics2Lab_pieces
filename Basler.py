@@ -56,7 +56,7 @@ class Base(pzp.Piece):
                     self.camera.GevSCPSPacketSize.Value = 1500
                     self.camera.AcquisitionMode.Value = "Continuous"
                     self.camera.TriggerControlImplementation.Value = "Standard"
-                    
+
                     if self.camera.DeviceModelName.Value != "CamEmu":
                         self.camera.TriggerSelector.Value = "AcquisitionStart"
                         self.camera.TriggerMode.Value = "Off"
@@ -447,7 +447,7 @@ class Piece(Base):
 
         # numba makes this slightly faster, uncomment if needed
         # pg.setConfigOption('useNumba', True)
-        self.imgw = pg.ImageItem(border='w', axisOrder='row-major', levels=[0, 1024])
+        self.imgw = pg.ImageItem(border='w', axisOrder='row-major', levels=[0, 256])
         self["autolevel"].set_value(0)
         plot_item.addItem(self.imgw)
 
