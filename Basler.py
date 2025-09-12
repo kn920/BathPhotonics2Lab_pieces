@@ -505,7 +505,7 @@ class LineoutPiece(Piece):
 
         # numba makes this slightly faster, uncomment if needed
         # pg.setConfigOption('useNumba', True)
-        self.imgw = pg.ImageItem(border='w', axisOrder='row-major', levels=[0, 1024])
+        self.imgw = pg.ImageItem(border='w', axisOrder='row-major', levels=[0, 256])
         self["autolevel"].set_value(0)
         plot_main.addItem(self.imgw)
 
