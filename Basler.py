@@ -55,6 +55,7 @@ class Base(pzp.Piece):
                     self.camera.Open()
                     self.camera.GevSCPSPacketSize.Value = 1500
                     self.camera.AcquisitionMode.Value = "Continuous"
+                    self.camera.TriggerControlImplementation.Value = "Standard"
                     
                     if self.camera.DeviceModelName.Value != "CamEmu":
                         self.camera.TriggerSelector.Value = "AcquisitionStart"

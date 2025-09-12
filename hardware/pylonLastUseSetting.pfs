@@ -3,7 +3,7 @@
 # Device = Basler::GigECameraParams -- Basler GigEVision camera interface -- Device version = 2.12.0 -- Product GUID = 1F3C6A72-7842-4edd-9130-E2E90A2058BA -- Product version GUID = 20FC610C-622E-416E-8B34-87A913A0FBEF
 GainAuto	Off
 GainSelector	All
-GainRaw	0
+GainRaw	100
 GainSelector	Tap1
 GainRaw	0
 GainSelector	Tap2
@@ -71,7 +71,7 @@ TriggerSelector	FrameStart
 ExposureMode	Timed
 ExposureAuto	Off
 ExposureTimeBaseAbs	20
-ExposureTimeRaw	500
+ExposureTimeRaw	235
 AcquisitionFrameRateEnable	0
 AveragingNumberOfFrames	1
 LineSelector	Line1
