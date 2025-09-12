@@ -276,7 +276,7 @@ class Base(pzp.Piece):
                     self.puzzle, 'Save file as...', 
                     '.', "Image files (*.png)")
             
-            Image.fromarray((image // 4).astype(np.uint8)).save(filename)
+            Image.fromarray((image).astype(np.uint8)).save(filename)
         
         @pzp.action.define(self, "Rediscover", visible=False)
         def rediscover(self):
