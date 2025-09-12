@@ -26,10 +26,16 @@ class Base(pzp.Piece):
         # Make a parameter for the serial number of the camera
         @pzp.param.dropdown(self, 'serial', '')
         def get_serials(self):
+            return None
+
+        @get_serials.set_getter(self)
+        def get_serials(self):
             if self.puzzle.debug:
                 return None
             self.cam_list = self.tlf.EnumerateDevices()
-            return [i.GetModelName() for i in self.cam_list]
+            self["serial"].input.clear()
+            self["serial"].input.addItems([i.GetModelName() for i in self.cam_list])
+            return self.params['serial'].value
 
         # Make a checkbox for connecting to the camera. Clicking the checkbox will call
         # the function below - if checked, the function gets value=1, otherwise 0
