@@ -209,6 +209,8 @@ class Piece(pzp.Piece):
     def append_text(self, text):
         # move cursor to the end, insert text, then move again
         self.terminal.moveCursor(QtGui.QTextCursor.End)
+        text = text.replace("\x11", "")
+        text = text.replace("\x13", "")
         self.terminal.insertPlainText(text)
         self.terminal.moveCursor(QtGui.QTextCursor.End)
 
