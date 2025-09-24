@@ -9,6 +9,7 @@ class Piece(pzp.Piece):
         @pzp.param.checkbox(self, "connected", 0)
         def connect(self, value):
             if self.puzzle.debug:
+                self.daq = NI.NIDAQ("Dev1")
                 return value
             
             # Check if we're currently connected by checking what the state of the checkbox was

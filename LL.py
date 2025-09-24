@@ -22,7 +22,7 @@ class Piece(pzp.Piece):
         pzp.param.progress(self, "progress")(None)
 
 
-    def _take_ll(self, param_image, param_subBG, action_takeBG, param_BG, pulse_train_param, wl):
+    def _take_ll(self, param_image, param_subBG, action_takeBG, param_BG, pulse_train_param, wl, param_hw_trigger):
         positions = np.linspace(self["start"].value, self["end"].value, self["N"].value)
         vary = pzp.parse.parse_params(self["vary"].value, self.puzzle)[0]
 
@@ -41,8 +41,12 @@ class Piece(pzp.Piece):
         spectra = np.zeros((len(positions), *background.shape), np.int32)
         powers = np.zeros(len(positions))
         
-        # Free-running laser
-        pulse_train_param.set_value(1)
+        if param_hw_trigger.value:
+            # Keep laser off, ready to trigger
+            pulse_train_param.set_value(0)
+        else:
+            # Free-running laser
+            pulse_train_param.set_value(1)
 
         # Scan position and save the spectra
         self.stop = False
@@ -52,7 +56,10 @@ class Piece(pzp.Piece):
                 raise Exception("Scan range over the limits")
             vary.set_value(pos)
 
-            spectra[i] = param_image.get_value()
+            if param_hw_trigger.value:
+                spectra[i] = self.puzzle["Andor"].single_acquisition()
+            else:
+                spectra[i] = param_image.get_value()
             # powers[i] = self.puzzle['powermeter']['power'].get_value()
             if self.stop:
                 pulse_train_param.set_value(0)
@@ -68,6 +75,7 @@ class Piece(pzp.Piece):
         # Make a dataset for the data
         ll = ds.dataset(spectra, aom_voltage=np.asarray(positions), pixel=np.arange(spectra.shape[1]), wl=wl)
         ll.metadata['background'] = background
+        ll.metadata['hardware trigger'] = param_hw_trigger.value
         self.result = ll
         
         self.update_plot(ll)
@@ -86,7 +94,8 @@ class Piece(pzp.Piece):
                 self.puzzle["Andor"].actions["Take background"],
                 self.puzzle["Andor"]["background"],
                 self.puzzle["Spot trigger"]["FIRE LASER"],
-                self.puzzle["Andor"]["wls"].value
+                self.puzzle["Andor"]["wls"].value,
+                self.puzzle["Spot trigger"]["Hardware trigger"]
             )
             self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, " \
                                         "Andor:amp_mode, Andor:vs_speed, Andor:slit_width", 
@@ -124,12 +133,13 @@ class Piece(pzp.Piece):
 
 
 if __name__ == "__main__":
-    import Andor, Spot_trigger, AOM
+    import Andor, Spot_trigger, AOM, NIDAQ
     app = pzp.QApp([])
-    puzzle = pzp.Puzzle()
-    puzzle.add_piece("Andor", Andor.LineoutPiece(puzzle), 0, 0)
-    puzzle.add_piece("ll", Piece(puzzle), 1, 0)
-    puzzle.add_piece("Spot trigger", Spot_trigger.Piece(puzzle), 0, 1)
-    puzzle.add_piece("AOM", AOM.Piece(puzzle), 1, 1)    
+    puzzle = pzp.Puzzle(debug=True)
+    puzzle.add_piece("Andor", Andor.LineoutPiece(puzzle), 0, 0, 2, 1)
+    puzzle.add_piece("ll", Piece(puzzle), 2, 0)
+    puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 1)
+    puzzle.add_piece("Spot trigger", Spot_trigger.Piece(puzzle), 1, 1)
+    puzzle.add_piece("AOM", AOM.Piece(puzzle), 2, 1)    
     puzzle.show()
     app.exec()

@@ -104,6 +104,9 @@ class Piece(pzp.Piece):
 
         pzp.param.spinbox(self, "pulses", 1, v_min=1)(None)
 
+        # Assign a dummy analog input for the DAQ clock
+        pzp.param.dropdown(self, "ai_dummy port", "ai20", visible=False)(None)
+
         # Set Digital input port for firing signal (trigger) from Newton camera
         @pzp.param.dropdown(self, 'digital_in port', '')
         def din_port(self):
@@ -120,6 +123,8 @@ class Piece(pzp.Piece):
                 return value
             current_value = self.params['Hardware trigger'].value
             if value and not current_value:
+                # Need a dummy analog input for the DAQ clock
+                self.puzzle["NIDAQ"].daq.add_voltage_input("ai_dummy", self.params["ai_dummy port"].value)
                 self.puzzle["NIDAQ"].daq.add_digital_input("hardware_trigger", self.params["digital_in port"].value)
                 return True
             elif not value:

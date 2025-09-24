@@ -8,6 +8,8 @@ import datetime
 import time
 import threading
 import sys
+from concurrent.futures import ThreadPoolExecutor
+
 
 def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
     """This function will spawn a thread and run the given function
@@ -64,14 +66,14 @@ class Settings(pzp.piece.Popup):
                     A = [(1,1,1), (2,2,2), (3,3,3)]
                     self["amp_mode"].input.addItems([str(x) for x in A])
                     self["vs_speed"].input.addItems([str(x) for x in A])
-                    self.params["input_port"].input.addItems(["side"])
+                    self.params["input_port"].input.addItems(["direct", "side"])
             except:
                 ...
 
             self["amp_mode"].get_value()
             self["vs_speed"].get_value()
             self["input_port"].get_value()
-            self["slit_width"].get_value()
+            # self["slit_width"].get_value()      # Slit not in use
             
         relaod_dropdowns()
     
@@ -461,28 +463,32 @@ class Base(pzp.Piece):
                 self.call_stop()
                 time.sleep(0.5)
             if not self.puzzle.debug:
-                self.spec.set_flipper_port(1, value)
+                self.spec.set_flipper_port("input", value)
             return value
 
         # Set input slit width
         @pzp.param.spinbox(self, "slit_width", 8, v_max=2500, v_min=0, visible=False)
         @self._ensure_connected
         def slit_width(self, value):
-            if self.puzzle.debug:
+            print("Slit is currently under repair, slit width bypassed")
+            # if self.puzzle.debug:     # Slit not in use
+            if True:
                 return value
+
             try:
                 ### Set slit issue - increase slit width no problem, but it take ~1 mins to decrease the slit at the first time?
-                timeout_func(lambda: self.spec.set_slit_width("input_direct", float(value)*1e-6), timeout=10)
+                timeout_func(lambda: self.spec.set_slit_width("input_direct", float(value)*1e-6), timeout=5)
             except Exception as e:
                 raise e
-            # self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
+            self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
 
         @slit_width.set_getter(self)
         @self._ensure_connected
         def slit_width(self):
             if self.timer.input.isChecked():
                 self.call_stop()
-            if self.puzzle.debug:
+            # if self.puzzle.debug:     # Slit not in use
+            if True:
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
             # return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
@@ -613,7 +619,64 @@ class Base(pzp.Piece):
         elif not self.puzzle.debug and self.params["FVB mode"].value:
             if self.params["background"].value.shape[0] != 1:
                 raise Exception("Background size not match") 
-                
+
+    def run_andor(self):
+        return self.params["image"].get_value()
+
+
+    def wait_for_di_high(self, daq, channel_index=0, timeout=10.0):
+        start_time = time.time()
+        
+        while True:
+            # Check for timeout
+            if time.time() - start_time > timeout:
+                return False  # Timeout
+
+            num_available = daq.available_samples()
+            if num_available == 0:
+                time.sleep(0.001)
+                continue
+
+            # Read all available samples
+            data = daq.read(num_available, include=('di',))
+            if np.any(data[:, channel_index]):
+                return True  # DI went high
+        
+    def run_DAQ(self):
+        self.puzzle["NIDAQ"].daq.start()
+        if self.wait_for_di_high(self.puzzle["NIDAQ"].daq, channel_index=0, timeout=10.0):
+            self.puzzle["Spot trigger"].actions["Send pulse train"]()
+        else:
+            raise Exception("Wait for trigger signal timeout")
+        
+    def single_acquisition(self, pulses: int = None, exposure: float = None):
+        """
+        Single acquisition function for hardware triggered Newton camera with Spot laser and NIDAQ.
+        """
+        if not self.puzzle["Spot trigger:Hardware trigger"].value:
+            raise Exception("Hardware trigger not set")
+        
+        # Update parameters with the new input values
+        if pulses != None:
+            self.puzzle["Spot trigger:pulses"].set_value(pulses)
+        if exposure != None:
+            self.params["exposure"].set_value(exposure)
+        
+        pulses = self.puzzle["Spot trigger:pulses"].value
+        exposure = self.params["exposure"].value
+
+        with ThreadPoolExecutor() as executor:
+            # Submit both tasks
+            future_DAQ = executor.submit(self.run_DAQ)
+            future_andor = executor.submit(self.run_andor)
+
+            # Wait for completion and collect results
+            reading = future_andor.result()
+            _ = future_DAQ.result()
+
+        return reading
+        
+
     def setup(self):
         import pylablib as pll
         from pylablib.devices import Andor
