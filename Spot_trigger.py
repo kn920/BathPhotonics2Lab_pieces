@@ -12,6 +12,9 @@ class Piece(pzp.Piece):
         pfi_ports = ["PFI12", "PFI11", "PFI10"]
         self.params["PFI port"].input.addItems(pfi_ports)
 
+        din_ports = ["port0/line0", "port0/line1", "port0/line2"]
+        self.params["digital_in port"].input.addItems(din_ports)
+
     def define_params(self):
         # Set on-board counter
         @pzp.param.dropdown(self, 'counter', '')
@@ -47,7 +50,8 @@ class Piece(pzp.Piece):
             if value and not current_value:
                 max_freq = self.params["Rep rate"].get_value() * 1e3
                 period = 1/max_freq
-                self.puzzle["NIDAQ"].daq.add_pulse_output("laser_trigger", "ctr0", "pfi12", kind='time', on=period/2, off=period/2, clk_src=None, continuous=True, samps=1)
+                self.puzzle["NIDAQ"].daq.add_pulse_output("laser_trigger", self.params["counter"].value, self.params["PFI port"].value, 
+                                                          kind='time', on=period/2, off=period/2, clk_src=None, continuous=True, samps=1)
                 return True
             self.params["Unlock"].set_value(False)
             return False
@@ -99,6 +103,27 @@ class Piece(pzp.Piece):
                 return False
 
         pzp.param.spinbox(self, "pulses", 1, v_min=1)(None)
+
+        # Set Digital input port for firing signal (trigger) from Newton camera
+        @pzp.param.dropdown(self, 'digital_in port', '')
+        def din_port(self):
+            return None
+
+        @din_port.set_setter(self)
+        def din_port(self, value):
+            self.params["Hardware trigger"].set_value(False)
+            return value
+
+        @pzp.param.checkbox(self, "Hardware trigger", False, visible=True)
+        def hardware_trigger(self, value):
+            if self.puzzle.debug:
+                return value
+            current_value = self.params['Hardware trigger'].value
+            if value and not current_value:
+                self.puzzle["NIDAQ"].daq.add_digital_input("hardware_trigger", self.params["digital_in port"].value)
+                return True
+            elif not value:
+                return False
 
     def define_actions(self):
         @pzp.action.define(self, "Send pulse train")
