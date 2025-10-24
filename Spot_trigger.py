@@ -1,5 +1,28 @@
 import puzzlepiece as pzp
-from pyqtgraph.Qt import QtWidgets
+from pyqtgraph.Qt import QtWidgets, QtCore
+
+
+class TriggerInputReader(QtCore.QThread):
+    data_received = QtCore.pyqtSignal(bool)
+
+    def __init__(self, puzzle):
+        super().__init__(puzzle)
+        self._running = True
+        last_value = False
+
+    def run(self):
+        while self._running:
+            value = puzzle["NIDAQ"].daq.read(n=1, flush_read=0, timeout=10, include=('di'))
+            print(value)
+            if value and not last_value:
+                print('signal emitted')
+                self.data_received.emit(True)
+            last_value = value
+
+    def stop(self):
+        self._running = False
+        self.wait()
+
 
 class Piece(pzp.Piece):
     def __init__(self, puzzle):
@@ -124,11 +147,25 @@ class Piece(pzp.Piece):
             current_value = self.params['Hardware trigger'].value
             if value and not current_value:
                 # Need a dummy analog input for the DAQ clock
-                self.puzzle["NIDAQ"].daq.add_voltage_input("ai_dummy", self.params["ai_dummy port"].value)
-                self.puzzle["NIDAQ"].daq.add_digital_input("hardware_trigger", self.params["digital_in port"].value)
+                if not "ai_dummy" in self.puzzle["NIDAQ"].daq.get_input_channels(include=('ai')):
+                    self.puzzle["NIDAQ"].daq.add_voltage_input("ai_dummy", self.params["ai_dummy port"].value)
+                if not "hardware_trigger" in self.puzzle["NIDAQ"].daq.get_input_channels(include=('di')):
+                    self.puzzle["NIDAQ"].daq.add_digital_input("hardware_trigger", self.params["digital_in port"].value)
+
+                self["FIRE LASER"].set_value(False)
+                self.ext_trigger_reader = TriggerInputReader(self.puzzle)
+                self.ext_trigger_reader.data_received.connect(self.ext_trigger_pulse)
+                self.ext_trigger_reader.start()
+                self["FIRE LASER"].input.setEnabled(False)
+                self["FIRE LASER"].input.setStyleSheet("background-color: #ff0000")
                 return True
-            elif not value:
+            elif current_value and not value:
+                self.ext_trigger_reader.stop()
+                self["FIRE LASER"].input.setEnabled(True)
+                self["FIRE LASER"].input.setStyleSheet("background-color: #f3f3f3")
                 return False
+
+        self.firing = False
 
     def define_actions(self):
         @pzp.action.define(self, "Send pulse train")
@@ -136,9 +173,8 @@ class Piece(pzp.Piece):
         @self._ensure_unlocked
         def trigger_pulse(self):
             if not self.puzzle.debug:
-                self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=False, samps=1)
-                for _ in range(int(self.params["pulses"].value)):
-                    self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
+                self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=False, samps=int(self.params["pulses"].value))
+                self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
 
     # Ensure devices are connected
     @pzp.piece.ensurer        
@@ -159,6 +195,10 @@ class Piece(pzp.Piece):
     def kill_laser_output(self):
         if not self.puzzle.debug:
             self.puzzle["NIDAQ"].daq.stop_pulse_output(names="laser_trigger")
+
+    def ext_trigger_pulse(self):
+        if not self.puzzle["NIDAQ"].daq.is_pulse_output_running(names="laser_trigger"):
+            self.actions["Send pulse train"]()
 
 if __name__ == "__main__":
     import NIDAQ

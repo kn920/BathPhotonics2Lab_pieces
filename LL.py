@@ -57,13 +57,16 @@ class Piece(pzp.Piece):
             vary.set_value(pos)
 
             if param_hw_trigger.value:
-                spectra[i] = self.puzzle["Andor"].single_acquisition()
+                # spectra[i] = self.puzzle["Andor"].single_acquisition()
+                spectra[i] = param_image.get_value()
             else:
                 spectra[i] = param_image.get_value()
             # powers[i] = self.puzzle['powermeter']['power'].get_value()
             if self.stop:
                 pulse_train_param.set_value(0)
                 raise Exception("User interruption")
+            sleep(3)
+            
             self.puzzle.process_events()
 
         # Stop triggering laser
