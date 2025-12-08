@@ -52,7 +52,12 @@ def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
 class Settings(pzp.piece.Popup):
     def define_params(self):
         super().define_params()
-        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "counts", "max_counts", "sub_background"])
+
+        ### TO CLEAR - MIGHT NOT NEED DELAY
+        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", 
+                               "Trigger PFI port", "Trigger delay",
+                               "counts", "max_counts", "sub_background"])
+        ###
         
         # Reload dropdown lists when Settings popup opened
         def relaod_dropdowns():    
@@ -160,6 +165,8 @@ class Base(pzp.Piece):
                     self.cam.set_read_mode("image")
                     # Set shutter state to Auto
                     self.cam.setup_shutter('auto')
+                    # Set trigger mode to Internal
+                    self.cam.set_trigger_mode("int")
                     
                     # Obtain vs_speed_list
                     self.params["vs_speed_list_getter"].get_value()
@@ -443,6 +450,23 @@ class Base(pzp.Piece):
                     self.params["sub_background"].set_value(False)
                     # self.actions["Reset ROI"]()
                     return 0
+                
+        # Toggle between internal and external trigger mode
+        @pzp.param.checkbox(self, 'External trigger', False)
+        def ext_trigger_mode(self, value):
+            if not self.puzzle.debug:
+                current_value = self.params['External trigger'].value
+                if value and not current_value:
+                    self.cam.set_trigger_mode("ext")
+                    return 1
+                elif current_value and not value:
+                    self.cam.set_trigger_mode("int")
+                    return 0
+                
+        ### TO CLEAR - MIGHT NOT NEED DELAY
+        pzp.param.spinbox(self, "Trigger delay", 0., visible=False)(None)
+        pzp.param.dropdown(self, "Trigger PFI port", "", visible=False)(None)
+        ###
 
         # Set input port
         @pzp.param.dropdown(self, "input_port", "", visible=False)
@@ -902,6 +926,15 @@ class Piece(Base):
         plot_main.sigXRangeChanged.connect(sync_plot_fvb)
         plot_fvb.sigXRangeChanged.connect(sync_plot_main)
 
+        def disable_live():
+            if self['External trigger'].value:
+                self.timer.input.setChecked(False)
+                self.timer.input.setEnabled(False)
+            else:
+                self.timer.input.setEnabled(True)
+
+        self.params['External trigger'].changed.connect(disable_live)
+
         return layout
     
     def call_stop(self):
@@ -1044,7 +1077,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     puzzle.show()
