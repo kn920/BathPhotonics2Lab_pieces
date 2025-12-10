@@ -457,10 +457,17 @@ class Base(pzp.Piece):
             if not self.puzzle.debug:
                 current_value = self.params['External trigger'].value
                 if value and not current_value:
+                    self.cam.clear_acquisition()
+                    self.cam.set_acquisition_mode("cont")
                     self.cam.set_trigger_mode("ext")
+                    print(self.cam.get_acquisition_mode())
                     return 1
                 elif current_value and not value:
+                    self.cam.clear_acquisition()
+                    self.cam.set_acquisition_mode("single")
                     self.cam.set_trigger_mode("int")
+                    print(self.cam.get_acquisition_mode())
+
                     return 0
                 
         ### TO CLEAR - MIGHT NOT NEED DELAY
@@ -933,6 +940,7 @@ class Piece(Base):
             else:
                 self.timer.input.setEnabled(True)
 
+
         self.params['External trigger'].changed.connect(disable_live)
 
         return layout
@@ -1077,7 +1085,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     puzzle.show()
