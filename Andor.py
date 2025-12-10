@@ -173,6 +173,9 @@ class Base(pzp.Piece):
                     self.params["amp_mode_list_getter"].get_value()
 
                     self.params["temp_status"].get_value()
+                    self.params["FVB mode"].set_value(True)
+                    self.params["External trigger"].set_value(False)
+
                     return 1
                 except Exception as e:
                     self.dispose()
@@ -231,7 +234,12 @@ class Base(pzp.Piece):
             if self.timer.input.isChecked():
                 self.call_stop()
                 time.sleep(1)
-            self.cam.set_exposure(value*1e-3)
+            if self.cam.acquisition_in_progress():
+                self.cam.stop_acquisition()
+                self.cam.set_exposure(value*1e-3)
+                self.cam.start_acquisition()
+            else:
+                self.cam.set_exposure(value*1e-3)
 
         @exposure.set_getter(self)
         @self._ensure_connected
@@ -330,8 +338,13 @@ class Base(pzp.Piece):
                 dummy_imgsize = self.params["roi"].get_value()
                 image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
+                match self['External trigger'].value:
+                    case 1:
+                        self.cam.wait_for_frame(timeout=5)
+                        image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
-                image = self.cam.snap()
+                    case 0:
+                        image = self.cam.snap()
                 if image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
@@ -460,13 +473,13 @@ class Base(pzp.Piece):
                     self.cam.clear_acquisition()
                     self.cam.set_acquisition_mode("cont")
                     self.cam.set_trigger_mode("ext")
-                    print(self.cam.get_acquisition_mode())
+                    self.cam.start_acquisition()
                     return 1
                 elif current_value and not value:
+                    self.cam.stop_acquisition()
                     self.cam.clear_acquisition()
                     self.cam.set_acquisition_mode("single")
                     self.cam.set_trigger_mode("int")
-                    print(self.cam.get_acquisition_mode())
 
                     return 0
                 
@@ -833,9 +846,9 @@ class Piece(Base):
 
         # Add a PuzzleTimer for live view
         if not self.puzzle.debug:
-            delay = 0.05             # CHECK - Change to smaller value for faster refresh, but stable
+            delay = 0.001             # CHECK - Change to smaller value for faster refresh, but stable
         else:
-            delay = 0.1
+            delay = 0.001
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
         layout.addWidget(self.timer)
 
@@ -933,15 +946,21 @@ class Piece(Base):
         plot_main.sigXRangeChanged.connect(sync_plot_fvb)
         plot_fvb.sigXRangeChanged.connect(sync_plot_main)
 
-        def disable_live():
-            if self['External trigger'].value:
-                self.timer.input.setChecked(False)
-                self.timer.input.setEnabled(False)
+        def pause_live():
+            self.timer.input.setChecked(False)
+
+## TODO - disable "Settings" button when external trigger is enabled
+
+        self.params['External trigger'].changed.connect(pause_live)
+
+        def disable_ext_trigger():
+            if self.timer.input.isChecked():
+                self["External trigger"].input.setEnabled(False)
             else:
-                self.timer.input.setEnabled(True)
+                self["External trigger"].input.setEnabled(True)
 
+        self.timer.input.checkStateChanged.connect(disable_ext_trigger)
 
-        self.params['External trigger'].changed.connect(disable_live)
 
         return layout
     
