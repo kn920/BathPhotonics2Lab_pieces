@@ -8,7 +8,6 @@ import datetime
 import time
 import threading
 import sys
-from concurrent.futures import ThreadPoolExecutor
 
 
 def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
@@ -48,6 +47,9 @@ def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
         raise RuntimeError
     else:
         return it.result
+
+
+
 
 class Settings(pzp.piece.Popup):
     def define_params(self):
@@ -340,8 +342,10 @@ class Base(pzp.Piece):
             else:
                 match self['External trigger'].value:
                     case 1:
-                        self.cam.wait_for_frame(timeout=5)
-                        image = self.cam.read_newest_image()
+                        thread_w = puzzle.run_worker(pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10}))
+                        thread_w.signals.result.connect(lambda img: image = img))
+                        # self.cam.wait_for_frame(timeout=5)
+                        # image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
                     case 0:
                         image = self.cam.snap()
@@ -663,62 +667,6 @@ class Base(pzp.Piece):
         elif not self.puzzle.debug and self.params["FVB mode"].value:
             if self.params["background"].value.shape[0] != 1:
                 raise Exception("Background size not match") 
-
-    def run_andor(self):
-        return self.params["image"].get_value()
-
-
-    def wait_for_di_high(self, daq, channel_index=0, timeout=10.0):
-        start_time = time.time()
-        
-        while True:
-            # Check for timeout
-            if time.time() - start_time > timeout:
-                return False  # Timeout
-
-            num_available = daq.available_samples()
-            if num_available == 0:
-                time.sleep(0.001)
-                continue
-
-            # Read all available samples
-            data = daq.read(num_available, include=('di',))
-            if np.any(data[:, channel_index]):
-                return True  # DI went high
-        
-    def run_DAQ(self):
-        self.puzzle["NIDAQ"].daq.start()
-        if self.wait_for_di_high(self.puzzle["NIDAQ"].daq, channel_index=0, timeout=10.0):
-            self.puzzle["Spot trigger"].actions["Send pulse train"]()
-        else:
-            raise Exception("Wait for trigger signal timeout")
-        
-    def single_acquisition(self, pulses: int = None, exposure: float = None):
-        """
-        Single acquisition function for hardware triggered Newton camera with Spot laser and NIDAQ.
-        """
-        if not self.puzzle["Spot trigger:Hardware trigger"].value:
-            raise Exception("Hardware trigger not set")
-        
-        # Update parameters with the new input values
-        if pulses != None:
-            self.puzzle["Spot trigger:pulses"].set_value(pulses)
-        if exposure != None:
-            self.params["exposure"].set_value(exposure)
-        
-        pulses = self.puzzle["Spot trigger:pulses"].value
-        exposure = self.params["exposure"].value
-
-        with ThreadPoolExecutor() as executor:
-            # Submit both tasks
-            future_DAQ = executor.submit(self.run_DAQ)
-            future_andor = executor.submit(self.run_andor)
-
-            # Wait for completion and collect results
-            reading = future_andor.result()
-            _ = future_DAQ.result()
-
-        return reading
         
 
     def setup(self):
@@ -740,6 +688,13 @@ class Base(pzp.Piece):
     # Disconnect the camera when window close
     def handle_close(self, event):
         self.dispose()
+
+    # Andor frame acquisition worker thread
+    def acquire_frame_worker(self, timeout):
+        self.cam.wait_for_frame(timeout=timeout)
+        img = self.cam.read_newest_image()
+        return img
+
 
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):
@@ -1104,7 +1059,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     puzzle.show()
