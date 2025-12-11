@@ -96,8 +96,9 @@ class Base(pzp.Piece):
         # Move the custom_layout to the right of the generated inputs
         super().__init__(puzzle, custom_horizontal=True)
         # self.image will store the image the camera takes
-        self.image = [0]
+        self.image = np.zeros([1280,1280])
         self.params["sub_background"].set_value(False)    
+        self._acquiring = False
 
     def define_params(self):
     
@@ -337,32 +338,22 @@ class Base(pzp.Piece):
         # Image getter
         @pzp.param.array(self, 'image')
         @self._ensure_connected
-        # @self._ensure_temp_settled
-        def get_image(self):
-            if self.puzzle.debug:
-                # If we're in debug mode, we just return random noise
-                dummy_imgsize = self.params["roi"].get_value()
-                self.image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
-            else:
-                match self['External trigger'].value:
-                    case 1:
-                        # thread_w = pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10})
-                        # thread_w.returned.connect(lambda img: setattr(self, "image", img))
-                        # self.puzzle.run_worker(thread_w)
-
-                        self.cam.wait_for_frame(timeout=5)
-                        self.image = self.cam.read_newest_image()
-                # cam.snap handled all the acquisition start, wait, and stop 
-                    case 0:
-                        self.image = self.cam.snap()
-                        if self.image is None:
-                            raise Exception('Acquisition did not complete within the timeout...')
-                        
-            if self.params['sub_background'].get_value():
-                self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
-            if self.image.shape[1] != self.params["wls"].value.shape[0]:
-                self.params["wls"].get_value()
+        def image(self):
+            self.get_image()
+            print('Point C')
             return self.image
+                    
+            # if self.puzzle.debug:
+            #     # If we're in debug mode, we just return random noise
+            #     dummy_imgsize = self.params["roi"].get_value()
+            #     self.image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
+            #     if self.params['sub_background'].get_value():
+            #         self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+            #     if self.image.shape[1] != self.params["wls"].value.shape[0]:
+            #         self.params["wls"].get_value()
+            # else:
+            #     self.get_image()
+            # return self.image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
@@ -709,13 +700,51 @@ class Base(pzp.Piece):
     def handle_close(self, event):
         self.dispose()
 
+
     # Andor frame acquisition worker thread
     def acquire_frame_worker(self, timeout):
-        self.cam.wait_for_frame(timeout=timeout)
-        img = self.cam.read_newest_image()
-        if self.image is None:
-            raise Exception('Acquisition did not complete within the timeout...')
+        if not self.puzzle.debug:
+            self.cam.wait_for_frame(timeout=timeout)
+            img = self.cam.read_newest_image()
+            if img is None:
+                raise Exception('Acquisition did not complete within the timeout...')
+        else:
+            print('start D')
+            time.sleep(0.5)
+            img = np.random.random((1280, 1280))*1024
         return img
+
+    
+    def get_image(self):
+        """
+        Called by PuzzleTimer. Ensures strict sequential execution:
+        do not start another acquisition until the previous worker finishes.
+        """
+
+        if not self["External trigger"].value:
+            self.image = self.cam.snap()
+        else:
+            if self._acquiring:
+                return None    # Skip this timer tick
+            
+            self._acquiring = True
+
+            # Build and start your acquisition worker
+            worker = pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 5})
+            worker.returned.connect(self._on_frame_ready)
+
+            self.puzzle.run_worker(worker)
+        return None   # Timer expects a return but acquisition is async
+
+    def _on_frame_ready(self, frame):
+        self.image = frame
+        if self.params['sub_background'].get_value():
+            self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+        if self.image.shape[1] != self.params["wls"].value.shape[0]:
+            self.params["wls"].get_value()
+        self["image"].set_value(self.image)
+        self._acquiring = False
+
 
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):
@@ -788,7 +817,8 @@ class ROI_Popup(pzp.piece.Popup):
 
         return layout
 
-class Piece(Base):
+class Piece(Base):     
+
     def define_params(self):
         super().define_params()
 
@@ -821,11 +851,12 @@ class Piece(Base):
         layout = QtWidgets.QVBoxLayout()
 
         # Add a PuzzleTimer for live view
-        if not self.puzzle.debug:
-            delay = 0.001             # CHECK - Change to smaller value for faster refresh, but stable
-        else:
-            delay = 0.001
-        self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
+        delay = 0.001
+
+        # self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
+        self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, 
+                                             self.get_image, delay)
+        
         layout.addWidget(self.timer)
 
         # Make the plots
@@ -940,6 +971,7 @@ class Piece(Base):
     
     def call_stop(self):
         self.timer.stop()
+
 
 class LineoutPiece(Piece):
     def define_actions(self):
@@ -1078,7 +1110,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=False)
+    puzzle = pzp.Puzzle(app, "Lab", debug=True)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     import NIDAQ, Spot_trigger
