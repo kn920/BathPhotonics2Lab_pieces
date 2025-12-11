@@ -56,8 +56,7 @@ class Settings(pzp.piece.Popup):
         super().define_params()
 
         ### TO CLEAR - MIGHT NOT NEED DELAY
-        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", 
-                               "Trigger PFI port", "Trigger delay",
+        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "output_port", 
                                "counts", "max_counts", "sub_background"])
         ###
         
@@ -69,18 +68,21 @@ class Settings(pzp.piece.Popup):
                     self["amp_mode"].input.addItems([f"{x.hsspeed:1d}: {x.hsspeed_MHz:.2f}MHz, {x.preamp:1d}: {x.preamp_gain:.1f}" for x in amp_mode_fun])
                     self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].value])
                     self.params["input_port"].input.addItems(["direct", "side"])
+                    self.params["output_port"].input.addItems(["direct", "side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
                     self["amp_mode"].input.addItems([str(x) for x in A])
                     self["vs_speed"].input.addItems([str(x) for x in A])
                     self.params["input_port"].input.addItems(["direct", "side"])
+                    self.params["output_port"].input.addItems(["direct", "side"])
             except:
                 ...
 
             self["amp_mode"].get_value()
             self["vs_speed"].get_value()
             self["input_port"].get_value()
-            # self["slit_width"].get_value()      # Slit not in use
+            self["output_port"].get_value()
+            self["slit_width"].get_value()
             
         relaod_dropdowns()
     
@@ -133,6 +135,7 @@ class Base(pzp.Piece):
                         self["grating"].input.addItem(f"{i:02d} - {B2[i-1]}")
 
                 self.params["input_port"].input.addItems(["direct", "side"])
+                self.params["output_port"].input.addItems(["direct", "side"])
 
                 self.params["slit_width"].set_value(30)
 
@@ -156,6 +159,7 @@ class Base(pzp.Piece):
                         self["grating"].input.addItem(f"{i:02d} - {int(TGratingInfo.lines)} lpmm, {TGratingInfo.blaze_wavelength}")
 
                     self.params["input_port"].input.addItems(["direct", "side"])
+                    self.params["output_port"].input.addItems(["direct", "side"])
 
                     # Set cooler on
                     self.cam.set_cooler(on=True)
@@ -349,14 +353,14 @@ class Base(pzp.Piece):
                         # self.image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
                     case 0:
-                        self.self.image = self.cam.snap()
-                if self.self.image is None:
+                        self.image = self.cam.snap()
+                if self.image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
-                self.self.image = self.self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
-            if self.self.image.shape[1] != self.params["wls"].value.shape[0]:
+                self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+            if self.image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
-            return self.self.image
+            return self.image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
@@ -487,11 +491,6 @@ class Base(pzp.Piece):
                     self.cam.set_trigger_mode("int")
 
                     return 0
-                
-        ### TO CLEAR - MIGHT NOT NEED DELAY
-        pzp.param.spinbox(self, "Trigger delay", 0., visible=False)(None)
-        pzp.param.dropdown(self, "Trigger PFI port", "", visible=False)(None)
-        ###
 
         # Set input port
         @pzp.param.dropdown(self, "input_port", "", visible=False)
@@ -503,7 +502,7 @@ class Base(pzp.Piece):
         def input_port(self):
             if self.puzzle.debug:
                 return self.params['input_port'].value
-            return "direct"
+            return "side"
 
         @input_port.set_setter(self)
         @self._ensure_connected
@@ -519,29 +518,44 @@ class Base(pzp.Piece):
         @pzp.param.spinbox(self, "slit_width", 8, v_max=2500, v_min=0, visible=False)
         @self._ensure_connected
         def slit_width(self, value):
-            print("Slit is currently under repair, slit width bypassed")
-            # if self.puzzle.debug:     # Slit not in use
-            if True:
+            if self.puzzle.debug:
                 return value
-
             try:
-                ### Set slit issue - increase slit width no problem, but it take ~1 mins to decrease the slit at the first time?
-                timeout_func(lambda: self.spec.set_slit_width("input_direct", float(value)*1e-6), timeout=5)
+                timeout_func(lambda: self.spec.set_slit_width("input_side", float(value)*1e-6), timeout=5)
             except Exception as e:
                 raise e
-            self.spec.set_slit_width("input_"+self.params["input_port"].value, float(value)*1e-6)
 
         @slit_width.set_getter(self)
         @self._ensure_connected
         def slit_width(self):
             if self.timer.input.isChecked():
                 self.call_stop()
-            # if self.puzzle.debug:     # Slit not in use
-            if True:
+            if self.puzzle.debug:     # Slit not in use
                 return self.params['slit_width'].value
             # If we're connected and not in debug mode, return the input slit width from the spec
-            # return self.spec.get_slit_width("input_"+self.params["input_port"].value) * 1e6
-            return self.spec.get_slit_width("input_direct") * 1e6
+            return self.spec.get_slit_width("input_side") * 1e6
+
+        # Set output port
+        @pzp.param.dropdown(self, "output_port", "", visible=False)
+        def output_port(self):
+            return None
+
+        @output_port.set_getter(self)
+        @self._ensure_connected
+        def output_port(self):
+            if self.puzzle.debug:
+                return self.params['output_port'].value
+            return "direct"
+
+        @output_port.set_setter(self)
+        @self._ensure_connected
+        def output_port(self, value):
+            if self.timer.input.isChecked():
+                self.call_stop()
+                time.sleep(0.5)
+            if not self.puzzle.debug:
+                self.spec.set_flipper_port("output", value)
+            return value
 
     def define_actions(self):
         @pzp.action.define(self, "ROI", visible=False)
@@ -586,6 +600,8 @@ class Base(pzp.Piece):
         @pzp.action.define(self, "Settings")
         @self._ensure_connected
         def settings(self):
+            if self["External trigger"].value:
+                raise Exception("Settings can only be accessed in internal trigger mode")
             self.open_popup(Settings, "More settings")
 
         @pzp.action.define(self, "Export device info", visible=False)
@@ -695,7 +711,6 @@ class Base(pzp.Piece):
         self.cam.wait_for_frame(timeout=timeout)
         img = self.cam.read_newest_image()
         return img
-
 
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):
@@ -904,8 +919,6 @@ class Piece(Base):
 
         def pause_live():
             self.timer.input.setChecked(False)
-
-## TODO - disable "Settings" button when external trigger is enabled
 
         self.params['External trigger'].changed.connect(pause_live)
 
