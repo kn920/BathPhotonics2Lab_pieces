@@ -346,16 +346,18 @@ class Base(pzp.Piece):
             else:
                 match self['External trigger'].value:
                     case 1:
-                        thread_w = pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10})
-                        thread_w.signals.result.connect(lambda img: setattr(self, "image", img))
-                        self.puzzle.run_worker(thread_w)
-                        # self.cam.wait_for_frame(timeout=5)
-                        # self.image = self.cam.read_newest_image()
+                        # thread_w = pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10})
+                        # thread_w.returned.connect(lambda img: setattr(self, "image", img))
+                        # self.puzzle.run_worker(thread_w)
+
+                        self.cam.wait_for_frame(timeout=5)
+                        self.image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
                     case 0:
                         self.image = self.cam.snap()
-                if self.image is None:
-                    raise Exception('Acquisition did not complete within the timeout...')
+                        if self.image is None:
+                            raise Exception('Acquisition did not complete within the timeout...')
+                        
             if self.params['sub_background'].get_value():
                 self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
             if self.image.shape[1] != self.params["wls"].value.shape[0]:
@@ -521,7 +523,8 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 return value
             try:
-                timeout_func(lambda: self.spec.set_slit_width("input_side", float(value)*1e-6), timeout=5)
+                # timeout_func(lambda: self.spec.set_slit_width("input_side", float(value)*1e-6), timeout=5)
+                self.spec.set_slit_width("input_side", float(value)*1e-6)
             except Exception as e:
                 raise e
 
@@ -710,6 +713,8 @@ class Base(pzp.Piece):
     def acquire_frame_worker(self, timeout):
         self.cam.wait_for_frame(timeout=timeout)
         img = self.cam.read_newest_image()
+        if self.image is None:
+            raise Exception('Acquisition did not complete within the timeout...')
         return img
 
 class ROI_Popup(pzp.piece.Popup):
@@ -1073,9 +1078,12 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
+    import NIDAQ, Spot_trigger
+    puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 1)
+    puzzle.add_piece("Spot_trigger", Spot_trigger.Piece(puzzle), 1, 1)
     puzzle.show()
     app.exec()
 
