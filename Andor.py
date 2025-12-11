@@ -338,24 +338,25 @@ class Base(pzp.Piece):
             if self.puzzle.debug:
                 # If we're in debug mode, we just return random noise
                 dummy_imgsize = self.params["roi"].get_value()
-                image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
+                self.image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
             else:
                 match self['External trigger'].value:
                     case 1:
-                        thread_w = puzzle.run_worker(pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10}))
-                        thread_w.signals.result.connect(lambda img: image = img))
+                        thread_w = pzp.threads.Worker(self.acquire_frame_worker, kwargs={"timeout": 10})
+                        thread_w.signals.result.connect(lambda img: setattr(self, "image", img))
+                        puzzle.run_worker(thread_w)
                         # self.cam.wait_for_frame(timeout=5)
-                        # image = self.cam.read_newest_image()
+                        # self.image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
                     case 0:
-                        image = self.cam.snap()
-                if image is None:
+                        self.image = self.cam.snap()
+                if self.image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
-                image = image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
-            if image.shape[1] != self.params["wls"].value.shape[0]:
+                self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+            if self.image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
-            return image
+            return self.image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
