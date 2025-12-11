@@ -339,6 +339,9 @@ class Base(pzp.Piece):
         @pzp.param.array(self, 'image')
         @self._ensure_connected
         def image(self):
+            # self.cam.wait_for_frame(timeout=5)
+            # self.image = self.cam.read_newest_image()
+
             self.get_image()
             print('Point C')
             return self.image
@@ -723,6 +726,7 @@ class Base(pzp.Piece):
 
         if not self["External trigger"].value:
             self.image = self.cam.snap()
+            self._on_frame_ready(self.image)
         else:
             if self._acquiring:
                 return None    # Skip this timer tick
@@ -1110,7 +1114,7 @@ class LineoutPiece(Piece):
 if __name__ == "__main__":
     # If running this file directly, make a Puzzle, add our Piece, and display it
     app = QtWidgets.QApplication([])
-    puzzle = pzp.Puzzle(app, "Lab", debug=True)
+    puzzle = pzp.Puzzle(app, "Lab", debug=False)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     import NIDAQ, Spot_trigger
