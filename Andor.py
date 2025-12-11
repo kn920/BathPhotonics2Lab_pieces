@@ -344,6 +344,7 @@ class Base(pzp.Piece):
 
             self.get_image()
             print('Point C')
+            time.sleep(1)
             return self.image
                     
             # if self.puzzle.debug:
@@ -588,6 +589,7 @@ class Base(pzp.Piece):
             Image.fromarray(image.astype(np.int32)).save(filename)
 
         @pzp.action.define(self, "Take background", visible=False)
+        @self.set_in_internal
         def take_background(self):
             self.params['sub_background'].set_value(False)
             background = self.params['image'].get_value()
@@ -715,6 +717,7 @@ class Base(pzp.Piece):
             print('start D')
             time.sleep(0.5)
             img = np.random.random((1280, 1280))*1024
+            print('point Z')
         return img
 
     
@@ -742,13 +745,21 @@ class Base(pzp.Piece):
 
     def _on_frame_ready(self, frame):
         self.image = frame
+        self._acquiring = False
         if self.params['sub_background'].get_value():
             self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
         if self.image.shape[1] != self.params["wls"].value.shape[0]:
             self.params["wls"].get_value()
         self["image"].set_value(self.image)
-        self._acquiring = False
-
+        
+    # define wrapper for setting at internal trigger mode
+    def set_in_internal(self, func):
+        def wrapper():
+            trigger_mode = self['External trigger'].value
+            self['External trigger'].set_value(False)
+            func(self)
+            self['External trigger'].set_value(trigger_mode)
+        return wrapper
 
 class ROI_Popup(pzp.piece.Popup):
     def define_actions(self):

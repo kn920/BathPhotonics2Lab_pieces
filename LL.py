@@ -22,10 +22,19 @@ class Piece(pzp.Piece):
         pzp.param.progress(self, "progress")(None)
 
 
-    def _take_ll(self, param_image, param_subBG, action_takeBG, param_BG, pulse_train_param, wl, param_hw_trigger):
+    def _take_ll(self):
         positions = np.linspace(self["start"].value, self["end"].value, self["N"].value)
         vary = pzp.parse.parse_params(self["vary"].value, self.puzzle)[0]
 
+# TODO - Sub variables back to the function
+                # self.puzzle["Andor"]["image"],
+                # self.puzzle["Andor"]["sub_background"],
+                # self.puzzle["Andor"].actions["Take background"],
+                # self.puzzle["Andor"]["background"],
+                # self.puzzle["Spot trigger"]["FIRE LASER"],
+                # self.puzzle["Andor"]["wls"].value,
+                # self.puzzle["Spot trigger"]["Hardware trigger"]
+        
         # Make sure the laser is not free-running
         if pulse_train_param:
             pulse_train_param.set_value(0)
@@ -57,7 +66,8 @@ class Piece(pzp.Piece):
             vary.set_value(pos)
 
             if param_hw_trigger.value:
-                # spectra[i] = self.puzzle["Andor"].single_acquisition()
+                self.puzzle["Andor"].get_image()
+
                 spectra[i] = param_image.get_value()
             else:
                 spectra[i] = param_image.get_value()
