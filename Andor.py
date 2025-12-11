@@ -349,14 +349,14 @@ class Base(pzp.Piece):
                         # self.image = self.cam.read_newest_image()
                 # cam.snap handled all the acquisition start, wait, and stop 
                     case 0:
-                        self.image = self.cam.snap()
-                if self.image is None:
+                        self.self.image = self.cam.snap()
+                if self.self.image is None:
                     raise Exception('Acquisition did not complete within the timeout...')
             if self.params['sub_background'].get_value():
-                self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
-            if self.image.shape[1] != self.params["wls"].value.shape[0]:
+                self.self.image = self.self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+            if self.self.image.shape[1] != self.params["wls"].value.shape[0]:
                 self.params["wls"].get_value()
-            return self.image
+            return self.self.image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
