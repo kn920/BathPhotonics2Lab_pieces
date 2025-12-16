@@ -112,6 +112,7 @@ class Piece(pzp.Piece):
             if not self.puzzle.debug:
                 self.puzzle["NIDAQ"].daq.set_pulse_output("laser_trigger", continuous=False, samps=int(self.params["pulses"].value))
                 self.puzzle["NIDAQ"].daq.start_pulse_output(names="laser_trigger", autostop=True)
+            print("Pulse(s) sent")
 
     # Ensure devices are connected
     @pzp.piece.ensurer        
@@ -133,9 +134,9 @@ class Piece(pzp.Piece):
         if not self.puzzle.debug:
             self.puzzle["NIDAQ"].daq.stop_pulse_output(names="laser_trigger")
 
-    def ext_trigger_pulse(self):
-        if not self.puzzle["NIDAQ"].daq.is_pulse_output_running(names="laser_trigger"):
-            self.actions["Send pulse train"]()
+    # def ext_trigger_pulse(self):
+    #     if not self.puzzle["NIDAQ"].daq.is_pulse_output_running(names="laser_trigger"):
+    #         self.actions["Send pulse train"]()
 
 if __name__ == "__main__":
     import NIDAQ

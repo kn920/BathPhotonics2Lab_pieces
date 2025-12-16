@@ -1,6 +1,6 @@
 import numpy as np
 from time import sleep
-from qtpy import QtWidgets
+from pyqtgraph.Qt import QtWidgets
 import pyqtgraph as pg
 from pyqtgraph.graphicsItems.NonUniformImage import NonUniformImage
 
@@ -25,92 +25,70 @@ class Piece(pzp.Piece):
     def _take_ll(self):
         positions = np.linspace(self["start"].value, self["end"].value, self["N"].value)
         vary = pzp.parse.parse_params(self["vary"].value, self.puzzle)[0]
-
-# TODO - Sub variables back to the function
-                # self.puzzle["Andor"]["image"],
-                # self.puzzle["Andor"]["sub_background"],
-                # self.puzzle["Andor"].actions["Take background"],
-                # self.puzzle["Andor"]["background"],
-                # self.puzzle["Spot trigger"]["FIRE LASER"],
-                # self.puzzle["Andor"]["wls"].value,
-                # self.puzzle["Spot trigger"]["Hardware trigger"]
         
         # Make sure the laser is not free-running
-        if pulse_train_param:
-            pulse_train_param.set_value(0)
+        if self.puzzle["Spot trigger"]["FIRE LASER"].value:
+            self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
         vary.set_value(positions[0])
 
         # Get background
-        action_takeBG()
-        background = param_BG.value
+        self.puzzle["Andor"].actions["Take background"]()
+        background = self.puzzle["Andor"]["background"].value
         self.puzzle.process_events()
         
-        param_subBG.set_value(False)
+        self.puzzle["Andor"]["sub_background"].set_value(False)
         # Make empty arrays for the values
         spectra = np.zeros((len(positions), *background.shape), np.int32)
         powers = np.zeros(len(positions))
         
-        if param_hw_trigger.value:
-            # Keep laser off, ready to trigger
-            pulse_train_param.set_value(0)
-        else:
-            # Free-running laser
-            pulse_train_param.set_value(1)
+        if not self.puzzle["Andor"]["External trigger"].value:
+            # Free-running laser for internal trigger
+            self.puzzle["Spot trigger"]["FIRE LASER"].set_value(1)
 
         # Scan position and save the spectra
         self.stop = False
         for i, pos in enumerate(self["progress"].iter(positions)):
             if pos < vary.input.minimum() or pos > vary.input.maximum():
-                pulse_train_param.set_value(0)
+                self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
                 raise Exception("Scan range over the limits")
             vary.set_value(pos)
 
-            if param_hw_trigger.value:
-                self.puzzle["Andor"].get_image()
+            spectra[i] = self.puzzle["Andor"].get_image()
 
-                spectra[i] = param_image.get_value()
-            else:
-                spectra[i] = param_image.get_value()
             # powers[i] = self.puzzle['powermeter']['power'].get_value()
             if self.stop:
-                pulse_train_param.set_value(0)
+                self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
                 raise Exception("User interruption")
-            sleep(3)
             
             self.puzzle.process_events()
 
         # Stop triggering laser
-        pulse_train_param.set_value(0)
+        self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
 
         spectra = spectra[:i+1]
         powers = powers[:i+1]
         
         # Make a dataset for the data
-        ll = ds.dataset(spectra, aom_voltage=np.asarray(positions), pixel=np.arange(spectra.shape[1]), wl=wl)
+        ll = ds.dataset(spectra, aom_voltage=np.asarray(positions), pixel=np.arange(spectra.shape[1]), wl=self.puzzle["Andor"]["wls"].value)
         ll.metadata['background'] = background
-        ll.metadata['hardware trigger'] = param_hw_trigger.value
         self.result = ll
         
         self.update_plot(ll)
         self.elevate()
         
-        param_subBG.set_value(True)
+        self.puzzle["Andor"]["sub_background"].set_value(True)
 
         return ll
 
     def define_actions(self):
         @pzp.action.define(self, "Scan")
         def scan(self):
-            ll = self._take_ll(
-                self.puzzle["Andor"]["image"],
-                self.puzzle["Andor"]["sub_background"],
-                self.puzzle["Andor"].actions["Take background"],
-                self.puzzle["Andor"]["background"],
-                self.puzzle["Spot trigger"]["FIRE LASER"],
-                self.puzzle["Andor"]["wls"].value,
-                self.puzzle["Spot trigger"]["Hardware trigger"]
-            )
-            self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, " \
+            try:
+                ll = self._take_ll()
+            finally:
+                self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
+
+            self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, Andor:External trigger, " \
                                         "Andor:amp_mode, Andor:vs_speed, Andor:slit_width", 
                                         ll.metadata)
             ll.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -149,7 +127,7 @@ if __name__ == "__main__":
     import Andor, Spot_trigger, AOM, NIDAQ
     app = pzp.QApp([])
     puzzle = pzp.Puzzle(debug=True)
-    puzzle.add_piece("Andor", Andor.LineoutPiece(puzzle), 0, 0, 2, 1)
+    puzzle.add_piece("Andor", Andor.Piece(puzzle), 0, 0, 2, 1)
     puzzle.add_piece("ll", Piece(puzzle), 2, 0)
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 1)
     puzzle.add_piece("Spot trigger", Spot_trigger.Piece(puzzle), 1, 1)

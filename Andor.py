@@ -96,7 +96,7 @@ class Base(pzp.Piece):
         # Move the custom_layout to the right of the generated inputs
         super().__init__(puzzle, custom_horizontal=True)
         # self.image will store the image the camera takes
-        self.image = np.zeros([1280,1280])
+        self.image = np.zeros([256,1024])
         self.params["sub_background"].set_value(False)    
         self._acquiring = False
 
@@ -140,7 +140,7 @@ class Base(pzp.Piece):
 
                 self.params["slit_width"].set_value(30)
 
-                self.params["roi"].set_value([0, 1279, 0, 255])
+                self.params["roi"].set_value([0, 1023, 0, 255])
 
                 self.params["temp_status"].get_value()
                 return value
@@ -338,26 +338,23 @@ class Base(pzp.Piece):
         # Image getter
         @pzp.param.array(self, 'image')
         @self._ensure_connected
-        def image(self):
-            # self.cam.wait_for_frame(timeout=5)
-            # self.image = self.cam.read_newest_image()
-
-            self.get_image()
-            print('Point C')
-            time.sleep(1)
+        def image(self):                   
+            if self.puzzle.debug:
+                # If we're in debug mode, we just return random noise
+                dummy_imgsize = self.params["roi"].get_value()
+                self.image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
+            else:
+                if self["External trigger"].value:
+                    # GUI will be blocked when waiting for signal
+                    self.cam.wait_for_frame(timeout=5)
+                    self.image = self.cam.read_newest_image()
+                else:
+                    self.image = self.cam.snap()
+            if self.params['sub_background'].get_value():
+                self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
+            if self.image.shape[1] != self.params["wls"].value.shape[0]:
+                self.params["wls"].get_value()
             return self.image
-                    
-            # if self.puzzle.debug:
-            #     # If we're in debug mode, we just return random noise
-            #     dummy_imgsize = self.params["roi"].get_value()
-            #     self.image = np.random.random((dummy_imgsize[3]-dummy_imgsize[2]+1, dummy_imgsize[1]-dummy_imgsize[0]+1))*1024
-            #     if self.params['sub_background'].get_value():
-            #         self.image = self.image.astype(np.int32) - self.params['background'].get_value().astype(np.int32)
-            #     if self.image.shape[1] != self.params["wls"].value.shape[0]:
-            #         self.params["wls"].get_value()
-            # else:
-            #     self.get_image()
-            # return self.image
 
         # Toggle background subtraction
         @pzp.param.checkbox(self, 'sub_background', False, visible=False)
@@ -374,13 +371,15 @@ class Base(pzp.Piece):
 
         # Readout for total counts
         @pzp.param.readout(self, 'counts', False)
+        @self.set_in_internal
         def get_counts(self):
             image = self.params['image'].get_value()
             return np.sum(image)
         
         # Readout for max counts
         @pzp.param.readout(self, 'max_counts', False)
-        def get_counts(self):
+        @self.set_in_internal
+        def get_maxcounts(self):
             image = self.params['image'].get_value()
             return np.amax(image)
         
@@ -453,7 +452,7 @@ class Base(pzp.Piece):
             # return np.linspace(roi[0], roi[1], (roi[1]-roi[0]+1))*3
             return np.linspace(300, 700, roi[1]-roi[0]+1)
 
-        self.params["wls"].set_value(np.linspace(0, 1280, 1280))
+        self.params["wls"].set_value(np.linspace(0, 1024, 1024))
 
         # Toggle between image & full-vertical binning mode
         @pzp.param.checkbox(self, 'FVB mode', False)
@@ -571,7 +570,7 @@ class Base(pzp.Piece):
                 self.params['roi'].set_value([0, int(roi_limits[0].max), 0, int(roi_limits[1].max)])
                 # self.params['roi'].set_value([int(roi_limits[0].max), int(roi_limits[1].max)])
             else:
-                self.params['roi'].set_value([0, 1279, 0, 255])
+                self.params['roi'].set_value([0, 1023, 0, 255])
 
         @pzp.action.define(self, "Save image")
         def save_image(self, filename=None):
@@ -715,21 +714,25 @@ class Base(pzp.Piece):
                 raise Exception('Acquisition did not complete within the timeout...')
         else:
             print('start D')
-            time.sleep(0.5)
-            img = np.random.random((1280, 1280))*1024
+            time.sleep(1)
+            img = np.random.random((256, 1024))*1024
             print('point Z')
         return img
 
     
-    def get_image(self):
+    def trigger_acquisition(self):
         """
         Called by PuzzleTimer. Ensures strict sequential execution:
         do not start another acquisition until the previous worker finishes.
         """
 
         if not self["External trigger"].value:
-            self.image = self.cam.snap()
+            if not self.puzzle.debug:
+                self.image = self.cam.snap()
+            else:
+                self.image = np.random.random((256, 1024))*1024
             self._on_frame_ready(self.image)
+            
         else:
             if self._acquiring:
                 return None    # Skip this timer tick
@@ -751,8 +754,30 @@ class Base(pzp.Piece):
         if self.image.shape[1] != self.params["wls"].value.shape[0]:
             self.params["wls"].get_value()
         self["image"].set_value(self.image)
+
+    def get_image(self, signal_delay = 50, timeout_ms=5000):
+        loop = QtCore.QEventLoop()
+        frame_acquired = False
+
+        def done():
+            nonlocal frame_acquired
+            frame_acquired = True
+            loop.quit()
+
+        self.params["image"].changed.connect(done)
+        QtCore.QTimer.singleShot(0, self.trigger_acquisition)
+        if self["External trigger"].value:
+            QtCore.QTimer.singleShot(signal_delay, self.puzzle["Spot trigger"].actions["Send pulse train"])
+        QtCore.QTimer.singleShot(timeout_ms, loop.quit)
+        loop.exec()
         
-    # define wrapper for setting at internal trigger mode
+        # Check if frame was acquired
+        if not frame_acquired:
+            raise Exception(f"No frame received within {timeout_ms} ms")
+
+        return self.params["image"].value
+        
+    # define wrapper for changing setting in internal trigger mode
     def set_in_internal(self, func):
         def wrapper():
             trigger_mode = self['External trigger'].value
@@ -870,7 +895,7 @@ class Piece(Base):
 
         # self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, self.params['image'].get_value, delay)
         self.timer = pzp.threads.PuzzleTimer('Live', self.puzzle, 
-                                             self.get_image, delay)
+                                             self.trigger_acquisition, delay)
         
         layout.addWidget(self.timer)
 
@@ -1130,7 +1155,7 @@ if __name__ == "__main__":
     puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
     import NIDAQ, Spot_trigger
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 1)
-    puzzle.add_piece("Spot_trigger", Spot_trigger.Piece(puzzle), 1, 1)
+    puzzle.add_piece("Spot trigger", Spot_trigger.Piece(puzzle), 1, 1)
     puzzle.show()
     app.exec()
 
