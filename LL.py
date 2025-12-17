@@ -88,10 +88,15 @@ class Piece(pzp.Piece):
             finally:
                 self.puzzle["Spot trigger"]["FIRE LASER"].set_value(0)
 
-            self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, Andor:External trigger, " \
+            # Record Andor parameters in internal trigger mode
+            trigger_mode = self.puzzle["Andor"]['External trigger'].value
+            self.puzzle["Andor"]['External trigger'].set_value(False)
+            self.puzzle.record_values(  "Andor:exposure, Andor:grating, Andor:centre, Andor:FVB mode, " \
                                         "Andor:amp_mode, Andor:vs_speed, Andor:slit_width", 
                                         ll.metadata)
+            ll.metadata["Andor:External trigger"] = trigger_mode
             ll.metadata["timestamp"] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+            self.puzzle["Andor"]['External trigger'].set_value(trigger_mode)
             ll.save(pzp.parse.format(self["filename"].value, self.puzzle), 2)
         
     def custom_layout(self):
@@ -122,6 +127,14 @@ class Piece(pzp.Piece):
         self.plot_line1.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw - np.sum(ll.metadata['background']))
         self.plot_line2.setData(ll.aom_voltage, ll.take_sum('pixel').take_sum('wl').raw - np.sum(ll.metadata['background']))
 
+        # define wrapper for changing setting in internal trigger mode
+        def set_in_internal(self, func):
+            def wrapper():
+                trigger_mode = self.puzzle["Andor"]['External trigger'].value
+                self.puzzle["Andor"]['External trigger'].set_value(False)
+                func(self)
+                self.puzzle["Andor"]['External trigger'].set_value(trigger_mode)
+            return wrapper
 
 if __name__ == "__main__":
     import Andor, Spot_trigger, AOM, NIDAQ

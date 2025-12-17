@@ -48,16 +48,12 @@ def timeout_func(func, args=None, kwargs=None, timeout=30, default=None):
     else:
         return it.result
 
-
-
-
-class Settings(pzp.piece.Popup):
+class More_Settings(pzp.piece.Popup):
     def define_params(self):
         super().define_params()
 
         ### TO CLEAR - MIGHT NOT NEED DELAY
-        self.add_child_params(["vs_speed", "amp_mode", "input_port", "slit_width", "output_port", 
-                               "counts", "max_counts", "sub_background"])
+        self.add_child_params(["amp_mode"])
         ###
         
         # Reload dropdown lists when Settings popup opened
@@ -66,19 +62,41 @@ class Settings(pzp.piece.Popup):
                 if not self.puzzle.debug:
                     amp_mode_fun = self.parent_piece.params["amp_mode_list_getter"].value
                     self["amp_mode"].input.addItems([f"{x.hsspeed:1d}: {x.hsspeed_MHz:.2f}MHz, {x.preamp:1d}: {x.preamp_gain:.1f}" for x in amp_mode_fun])
+                else:                                    
+                    A = [(1,1,1), (2,2,2), (3,3,3)]
+                    self["amp_mode"].input.addItems([str(x) for x in A])
+            except:
+                ...
+
+            self["amp_mode"].get_value()
+            
+        relaod_dropdowns()
+
+
+class Settings(pzp.piece.Popup):
+    def define_params(self):
+        super().define_params()
+
+        ### TO CLEAR - MIGHT NOT NEED DELAY
+        self.add_child_params(["vs_speed", "input_port", "slit_width", "output_port", 
+                               "counts", "max_counts", "sub_background"])
+        ###
+        
+        # Reload dropdown lists when Settings popup opened
+        def relaod_dropdowns():    
+            try:
+                if not self.puzzle.debug:
                     self["vs_speed"].input.addItems([f"{x:.2f}" for x in self.parent_piece.params["vs_speed_list_getter"].value])
                     self.params["input_port"].input.addItems(["direct", "side"])
                     self.params["output_port"].input.addItems(["direct", "side"])
                 else:                                    
                     A = [(1,1,1), (2,2,2), (3,3,3)]
-                    self["amp_mode"].input.addItems([str(x) for x in A])
                     self["vs_speed"].input.addItems([str(x) for x in A])
                     self.params["input_port"].input.addItems(["direct", "side"])
                     self.params["output_port"].input.addItems(["direct", "side"])
             except:
                 ...
 
-            self["amp_mode"].get_value()
             self["vs_speed"].get_value()
             self["input_port"].get_value()
             self["output_port"].get_value()
@@ -87,7 +105,7 @@ class Settings(pzp.piece.Popup):
         relaod_dropdowns()
     
     def define_actions(self):
-        self.add_child_actions(["Take background", "ROI", "Export device info"])
+        self.add_child_actions(["Take background", "ROI", "Export device info", "More settings"])
         return super().define_actions()
 
 
@@ -371,14 +389,12 @@ class Base(pzp.Piece):
 
         # Readout for total counts
         @pzp.param.readout(self, 'counts', False)
-        @self.set_in_internal
         def get_counts(self):
             image = self.params['image'].get_value()
             return np.sum(image)
         
         # Readout for max counts
         @pzp.param.readout(self, 'max_counts', False)
-        @self.set_in_internal
         def get_maxcounts(self):
             image = self.params['image'].get_value()
             return np.amax(image)
@@ -588,19 +604,25 @@ class Base(pzp.Piece):
             Image.fromarray(image.astype(np.int32)).save(filename)
 
         @pzp.action.define(self, "Take background", visible=False)
-        @self.set_in_internal
         def take_background(self):
             self.params['sub_background'].set_value(False)
-            background = self.params['image'].get_value()
+            # Maybe we should take a more proper background? Instead of just setting AOM to zero volt
+            self.puzzle["AOM"]["mod_in"].set_value(0)
+            background = self.get_image(signal_delay = 50, timeout_ms=5000)
             self.params['background'].set_value(background)
             self.params['sub_background'].set_value(True)
 
         @pzp.action.define(self, "Settings")
         @self._ensure_connected
         def settings(self):
+            self.open_popup(Settings, "Settings")
+        
+        @pzp.action.define(self, "More settings", visible=False)
+        @self._ensure_connected
+        def more_settings(self):
             if self["External trigger"].value:
-                raise Exception("Settings can only be accessed in internal trigger mode")
-            self.open_popup(Settings, "More settings")
+                raise Exception("More setting only avaliable in internal trigger mode")
+            self.open_popup(More_Settings, "More settings")
 
         @pzp.action.define(self, "Export device info", visible=False)
         def export_device_info(self, filename=None):
@@ -1004,7 +1026,11 @@ class Piece(Base):
             else:
                 self["External trigger"].input.setEnabled(True)
 
+        def reset_acquiring():
+            self._acquiring = False
+
         self.timer.input.checkStateChanged.connect(disable_ext_trigger)
+        self.timer.input.checkStateChanged.connect(reset_acquiring)
 
 
         return layout
@@ -1152,10 +1178,11 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication([])
     puzzle = pzp.Puzzle(app, "Lab", debug=False)
     # puzzle.add_piece("Andor", LineoutPiece(puzzle), 0, 0)
-    puzzle.add_piece("Andor", Piece(puzzle), 0, 0)
-    import NIDAQ, Spot_trigger
+    puzzle.add_piece("Andor", Piece(puzzle), 0, 0, 3, 1)
+    import NIDAQ, Spot_trigger, AOM
     puzzle.add_piece("NIDAQ", NIDAQ.Piece(puzzle), 0, 1)
     puzzle.add_piece("Spot trigger", Spot_trigger.Piece(puzzle), 1, 1)
+    puzzle.add_piece("AOM", AOM.Piece(puzzle), 2, 1)
     puzzle.show()
     app.exec()
 
